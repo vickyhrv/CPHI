@@ -5,6 +5,7 @@ set -euo pipefail
 
 APP_DIR="/opt/cphi-app"
 DATA_DIR="/var/lib/cphi-milan/data"
+UPLOAD_DIR="/var/lib/cphi-milan/uploads"
 APP_USER="cphi"
 
 if [[ "${EUID}" -ne 0 ]]; then
@@ -14,7 +15,7 @@ fi
 
 echo "==> Fixing ownership..."
 chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
-chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" 2>/dev/null || true
+chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" "${UPLOAD_DIR}" 2>/dev/null || true
 
 git config --global --add safe.directory "${APP_DIR}" 2>/dev/null || true
 sudo -u "${APP_USER}" git config --global --add safe.directory "${APP_DIR}" 2>/dev/null || true

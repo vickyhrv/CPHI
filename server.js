@@ -1,8 +1,17 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const store = require('./store');
-const { DB_PATH } = require('./db/database');
+const { DB_PATH, UPLOAD_DIR } = require('./db/database');
+const {
+  validateUpload,
+  newStoredName,
+  storedFilePath,
+  deleteStoredFile,
+  MAX_FILE_BYTES,
+} = require('./lib/files');
 const {
   findUser,
   createSession,
@@ -120,6 +129,7 @@ app.get('/api/health', (req, res) => {
       tasks: store.count('tasks'),
       leads: store.count('leads'),
       travelers: store.count('travelers'),
+      files: store.count('file_assets'),
     },
   });
 });
@@ -149,6 +159,27 @@ function sendCsv(res, filename, rows, headers) {
 function whoFromReq(req) {
   return req.body?.who || req.query?.who || '';
 }
+
+function whoFromSession(req) {
+  return req.user?.displayName || whoFromReq(req) || 'Unknown';
+}
+
+const fileUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+    filename: (_req, file, cb) => {
+      const err = validateUpload(file);
+      if (err) return cb(new Error(err));
+      cb(null, newStoredName(file.mimetype, file.originalname));
+    },
+  }),
+  limits: { fileSize: MAX_FILE_BYTES },
+  fileFilter: (_req, file, cb) => {
+    const err = validateUpload(file);
+    if (err) return cb(new Error(err));
+    cb(null, true);
+  },
+});
 
 // ─── Settings API ─────────────────────────────────────────────────────────────
 app.get('/api/settings', (req, res) => {
@@ -379,6 +410,134 @@ app.get('/api/activity/export.csv', (req, res) => {
   sendCsv(res, 'cphi-activity.csv', logs, ['id', 'action', 'detail', 'who', 'ts']);
 });
 
+// ─── Files API ────────────────────────────────────────────────────────────────
+function filterFiles(rows, q) {
+  const needle = String(q || '').trim().toLowerCase();
+  if (!needle) return rows;
+  return rows.filter((r) =>
+    (r.original_name || '').toLowerCase().includes(needle)
+    || (r.comment || '').toLowerCase().includes(needle)
+  );
+}
+
+function sendFilesCsv(res) {
+  const rows = store.all('file_assets');
+  const headers = [
+    'id', 'original_name', 'mime_type', 'size_bytes', 'comment',
+    'uploaded_by', 'created_at', 'updated_at',
+  ];
+  sendCsv(res, 'cphi-files.csv', rows, headers);
+}
+
+app.get('/api/files', (req, res) => {
+  try {
+    const rows = filterFiles(store.all('file_assets'), req.query.q);
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /api/files', err);
+    res.status(500).json({ error: 'Failed to load files' });
+  }
+});
+
+app.get('/api/files/export.csv', (req, res) => sendFilesCsv(res));
+app.get('/api/files/export', (req, res) => sendFilesCsv(res));
+
+app.post('/api/files', (req, res) => {
+  fileUpload.single('file')(req, res, (err) => {
+    if (err) {
+      const msg = err.code === 'LIMIT_FILE_SIZE'
+        ? 'File too large (max 8 MB)'
+        : (err.message || 'Upload failed');
+      return res.status(400).json({ error: msg });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file provided' });
+    }
+
+    const comment = String(req.body?.comment || '').trim();
+    const who = whoFromSession(req);
+
+    try {
+      const row = store.insert('file_assets', {
+        original_name: req.file.originalname,
+        stored_name: req.file.filename,
+        mime_type: req.file.mimetype,
+        size_bytes: req.file.size,
+        comment,
+        uploaded_by: who,
+      });
+      logActivity('Uploaded file', `"${req.file.originalname}"`, who);
+      res.json(row);
+    } catch (dbErr) {
+      deleteStoredFile(req.file.filename);
+      console.error('POST /api/files', dbErr);
+      res.status(500).json({ error: 'Failed to save file metadata' });
+    }
+  });
+});
+
+app.get('/api/files/:id/content', (req, res) => {
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid file id' });
+    const row = store.get('file_assets', id);
+    if (!row) return res.status(404).json({ error: 'File not found' });
+
+    const fp = storedFilePath(row.stored_name);
+    if (!fs.existsSync(fp)) {
+      return res.status(404).json({ error: 'File missing on disk' });
+    }
+
+    res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${row.original_name.replace(/"/g, '')}"`);
+    const stream = fs.createReadStream(fp);
+    stream.on('error', (streamErr) => {
+      console.error('GET /api/files/:id/content stream', streamErr);
+      if (!res.headersSent) res.status(500).json({ error: 'Failed to read file' });
+    });
+    stream.pipe(res);
+  } catch (err) {
+    console.error('GET /api/files/:id/content', err);
+    res.status(500).json({ error: 'Failed to load file' });
+  }
+});
+
+app.put('/api/files/:id', (req, res) => {
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid file id' });
+    const old = store.get('file_assets', id);
+    if (!old) return res.status(404).json({ error: 'File not found' });
+
+    const { comment } = req.body || {};
+    const updated = store.update('file_assets', id, {
+      comment: comment !== undefined ? String(comment) : old.comment,
+    });
+    if (!updated) return res.status(404).json({ error: 'File not found' });
+    res.json(updated);
+  } catch (err) {
+    console.error('PUT /api/files/:id', err);
+    res.status(500).json({ error: 'Failed to update file' });
+  }
+});
+
+app.delete('/api/files/:id', (req, res) => {
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid file id' });
+    const row = store.get('file_assets', id);
+    if (!row) return res.status(404).json({ error: 'File not found' });
+
+    deleteStoredFile(row.stored_name);
+    store.remove('file_assets', id);
+    logActivity('Deleted file', `"${row.original_name}"`, whoFromSession(req));
+    res.json({ ok: true, deletedId: id });
+  } catch (err) {
+    console.error('DELETE /api/files/:id', err);
+    res.status(500).json({ error: 'Failed to delete file' });
+  }
+});
+
 // Static files after all API routes (avoids 404 on /api/*/export.csv)
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -392,4 +551,5 @@ app.use((err, req, res, _next) => {
 app.listen(PORT, () => {
   console.log(`CPHI app running on port ${PORT}`);
   console.log(`SQLite database: ${DB_PATH}`);
+  console.log(`Upload directory: ${UPLOAD_DIR}`);
 });

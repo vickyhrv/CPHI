@@ -6,9 +6,14 @@ const { DatabaseSync } = require('node:sqlite');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DB_PATH = process.env.DATABASE_PATH || path.join(DATA_DIR, 'cphi.db');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(DATA_DIR, 'uploads');
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
 const db = new DatabaseSync(DB_PATH);
@@ -29,4 +34,4 @@ function withTransaction(fn) {
   }
 }
 
-module.exports = { db, DB_PATH, DATA_DIR, withTransaction };
+module.exports = { db, DB_PATH, DATA_DIR, UPLOAD_DIR, withTransaction };

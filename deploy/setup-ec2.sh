@@ -22,6 +22,7 @@ DOMAIN="cphi-milan.hrvglobal.ai"
 GIT_REPO="https://github.com/vickyhrv/CPHI.git"
 APP_DIR="/opt/cphi-app"
 DATA_DIR="/var/lib/cphi-milan/data"
+UPLOAD_DIR="/var/lib/cphi-milan/uploads"
 APP_USER="cphi"
 ENV_FILE="/etc/cphi-app/env"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@hrvglobal.ai}"
@@ -94,8 +95,8 @@ fi
 
 echo "==> Creating app user and directories..."
 id -u "${APP_USER}" &>/dev/null || useradd --system --home "${APP_DIR}" --shell /usr/sbin/nologin "${APP_USER}"
-mkdir -p "${APP_DIR}" "${DATA_DIR}" /etc/cphi-app /var/log/cphi-app
-chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" /var/log/cphi-app
+mkdir -p "${APP_DIR}" "${DATA_DIR}" "${UPLOAD_DIR}" /etc/cphi-app /var/log/cphi-app
+chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" "${UPLOAD_DIR}" /var/log/cphi-app
 
 fix_app_permissions() {
   chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
@@ -146,6 +147,7 @@ cat > "${ENV_FILE}" <<EOF
 NODE_ENV=production
 PORT=3000
 DATABASE_PATH=${DATA_DIR}/cphi.db
+UPLOAD_DIR=${UPLOAD_DIR}
 CPHI_USERS_FILE=/etc/cphi-app/users.json
 EOF
 chmod 640 "${ENV_FILE}"

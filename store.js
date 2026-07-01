@@ -14,6 +14,7 @@ const ALLOWED_TABLES = new Set([
   'activity_log',
   'travelers',
   'settings',
+  'file_assets',
 ]);
 
 const BOOLEAN_FIELDS = {
@@ -45,6 +46,10 @@ const TABLE_COLUMNS = {
     'insurance', 'forex', 'visa_apply_due', 'flight_due', 'hotel_due', 'notes',
   ],
   settings: ['budget_cap', 'currency'],
+  file_assets: [
+    'original_name', 'stored_name', 'mime_type', 'size_bytes',
+    'comment', 'uploaded_by', 'updated_at',
+  ],
 };
 
 function assertTable(table) {
@@ -89,7 +94,8 @@ function pickColumns(table, data) {
 const store = {
   all(table) {
     assertTable(table);
-    const rows = db.prepare(`SELECT * FROM ${table} ORDER BY id`).all();
+    const order = table === 'file_assets' ? 'ORDER BY updated_at DESC' : 'ORDER BY id';
+    const rows = db.prepare(`SELECT * FROM ${table} ${order}`).all();
     return rows.map((r) => normalizeOut(table, r));
   },
 
@@ -103,6 +109,9 @@ const store = {
     assertTable(table);
     const now = new Date().toISOString();
     const payload = normalizeIn(table, pickColumns(table, data));
+    if (table === 'file_assets') {
+      payload.updated_at = now;
+    }
     const cols = Object.keys(payload);
     const placeholders = cols.map((c) => `@${c}`).join(', ');
     const colList = cols.join(', ');
@@ -130,6 +139,9 @@ const store = {
     if (!existing) return null;
 
     const payload = normalizeIn(table, pickColumns(table, data));
+    if (table === 'file_assets') {
+      payload.updated_at = new Date().toISOString();
+    }
     const cols = Object.keys(payload);
     if (cols.length === 0) return existing;
 

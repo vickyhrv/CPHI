@@ -9,6 +9,7 @@ set -euo pipefail
 
 APP_DIR="/opt/cphi-app"
 APP_USER="cphi"
+UPLOAD_DIR="/var/lib/cphi-milan/uploads"
 BRANCH="${BRANCH:-main}"
 
 if [[ "${EUID}" -ne 0 ]]; then
@@ -33,6 +34,15 @@ ensure_git_safe() {
 
 fix_app_permissions
 ensure_git_safe
+
+echo "==> Ensuring upload directory..."
+mkdir -p "${UPLOAD_DIR}"
+chown -R "${APP_USER}:${APP_USER}" "${UPLOAD_DIR}"
+ENV_FILE="/etc/cphi-app/env"
+if [[ -f "${ENV_FILE}" ]] && ! grep -q '^UPLOAD_DIR=' "${ENV_FILE}"; then
+  echo "UPLOAD_DIR=${UPLOAD_DIR}" >> "${ENV_FILE}"
+  echo "    Added UPLOAD_DIR to ${ENV_FILE}"
+fi
 
 echo "==> Pulling ${BRANCH}..."
 sudo -u "${APP_USER}" env HOME="${APP_DIR}" git -C "${APP_DIR}" fetch origin

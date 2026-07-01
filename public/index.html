@@ -41,6 +41,7 @@
       <button class="tab-btn" data-tab="tasks">✅ Tasks</button>
       <button class="tab-btn" data-tab="leads">📋 Leads</button>
       <button class="tab-btn" data-tab="visa">🛂 Visas</button>
+      <button class="tab-btn" data-tab="files">📁 Files</button>
       <button class="tab-btn" data-tab="activity">📜 Log</button>
     </nav>
   </div>
@@ -190,6 +191,23 @@
     <div id="travelerList"></div>
   </section>
 
+  <!-- ── FILES ──────────────────────────────────────────────────────────────── -->
+  <section id="files" class="panel">
+    <div class="panel-head">
+      <h2>Files</h2>
+      <div class="head-actions file-head-actions">
+        <input type="search" id="fileSearchInput" class="file-search-input" placeholder="Search files…" aria-label="Search files" />
+        <button class="btn-secondary" id="exportFilesBtn" type="button">⬇ Export CSV</button>
+        <button class="btn-primary" id="uploadFileBtn" type="button">+ Upload file</button>
+        <input type="file" id="fileInput" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,.pdf" hidden />
+      </div>
+    </div>
+    <p class="file-hint">Upload booth photos, brochures, and PDFs. Click a thumbnail for fullscreen preview.</p>
+    <div class="file-grid-wrap">
+      <div id="fileGrid" class="file-grid"></div>
+    </div>
+  </section>
+
   <!-- ── ACTIVITY LOG ───────────────────────────────────────────────────────── -->
   <section id="activity" class="panel">
     <div class="panel-head">
@@ -207,6 +225,16 @@
 <!-- ── MODAL ─────────────────────────────────────────────────────────────────── -->
 <div class="modal-backdrop" id="modalBackdrop">
   <div class="modal" id="modal"></div>
+</div>
+
+<!-- ── FILE PREVIEW (fullscreen) ───────────────────────────────────────────── -->
+<div class="preview-backdrop" id="previewBackdrop" aria-hidden="true">
+  <button type="button" class="preview-close" id="previewClose" aria-label="Close preview">✕</button>
+  <div class="preview-content" id="previewContent"></div>
+  <div class="preview-footer">
+    <input type="text" class="preview-comment" id="previewComment" placeholder="Add a comment…" aria-label="File comment" />
+    <span class="preview-meta" id="previewMeta"></span>
+  </div>
 </div>
 
 <script src="/app.js"></script>

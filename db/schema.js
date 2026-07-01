@@ -82,13 +82,26 @@ CREATE TABLE IF NOT EXISTS settings (
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS file_assets (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  original_name TEXT NOT NULL,
+  stored_name   TEXT NOT NULL UNIQUE,
+  mime_type     TEXT NOT NULL DEFAULT '',
+  size_bytes    INTEGER NOT NULL DEFAULT 0,
+  comment       TEXT NOT NULL DEFAULT '',
+  uploaded_by   TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_phase ON tasks(phase);
 CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks(done);
 CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity_log(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_file_assets_updated ON file_assets(updated_at DESC);
 `;
 
-const MIGRATION_VERSION = 2;
+const MIGRATION_VERSION = 3;
 
 function columnExists(db, table, column) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -101,6 +114,22 @@ function applyMigration(db, version) {
       db.exec(`ALTER TABLE tasks ADD COLUMN notes TEXT NOT NULL DEFAULT ''`);
     }
     db.prepare(`UPDATE tasks SET phase = ? WHERE phase = ?`).run('Stall & Venue', 'Booth & Venue');
+  }
+  if (version === 3) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS file_assets (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        original_name TEXT NOT NULL,
+        stored_name   TEXT NOT NULL UNIQUE,
+        mime_type     TEXT NOT NULL DEFAULT '',
+        size_bytes    INTEGER NOT NULL DEFAULT 0,
+        comment       TEXT NOT NULL DEFAULT '',
+        uploaded_by   TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS idx_file_assets_updated ON file_assets(updated_at DESC);
+    `);
   }
 }
 

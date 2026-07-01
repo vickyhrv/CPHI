@@ -64,8 +64,19 @@ export CERTBOT_EMAIL=admin@hrvglobal.ai
 On the server:
 
 ```bash
+sudo git config --global --add safe.directory /opt/cphi-app
+sudo chown -R cphi:cphi /opt/cphi-app
 sudo bash /opt/cphi-app/deploy/deploy.sh
 ```
+
+**Files tab (images + PDF uploads)** — after first deploy with this feature, also run once if nginx still has a 2 MB limit:
+
+```bash
+sudo cp /opt/cphi-app/deploy/nginx/cphi-milan.conf /etc/nginx/sites-available/cphi-milan.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+`deploy.sh` creates `/var/lib/cphi-milan/uploads` and adds `UPLOAD_DIR` to `/etc/cphi-app/env` if missing.
 
 ## Paths on server
 
@@ -73,6 +84,7 @@ sudo bash /opt/cphi-app/deploy/deploy.sh
 |-------------|------|
 | App code    | `/opt/cphi-app` |
 | SQLite DB   | `/var/lib/cphi-milan/data/cphi.db` |
+| File uploads | `/var/lib/cphi-milan/uploads/` |
 | Environment | `/etc/cphi-app/env` |
 | Nginx       | `/etc/nginx/sites-available/cphi-milan.conf` |
 | Service     | `systemctl status cphi-app` |

@@ -114,6 +114,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.add('active');
     document.getElementById(btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'activity') loadActivity();
+    if (btn.dataset.tab === 'files') loadFiles();
   });
 });
 
@@ -813,6 +814,268 @@ document.getElementById('addTravelerBtn').addEventListener('click', () => openMo
 document.getElementById('exportTravelersBtn').addEventListener('click', () => exportCsv('/api/travelers/export.csv'));
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// FILES
+// ═══════════════════════════════════════════════════════════════════════════════
+let fileData = [];
+let fileSearchQuery = '';
+let previewFileId = null;
+const fileCommentTimers = new Map();
+let fileListenersBound = false;
+
+function isImageFile(file) {
+  return String(file?.mime_type || '').startsWith('image/');
+}
+
+function formatFileSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fmtDateTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+async function loadFiles() {
+  fileData = await api('/api/files');
+  renderFileGrid();
+}
+
+function renderFileGrid() {
+  const grid = document.getElementById('fileGrid');
+  const q = fileSearchQuery.trim().toLowerCase();
+  const items = q
+    ? fileData.filter((f) =>
+      (f.original_name || '').toLowerCase().includes(q)
+      || (f.comment || '').toLowerCase().includes(q))
+    : fileData;
+
+  if (!items.length) {
+    grid.innerHTML = q
+      ? '<div class="empty-state">No files match your search.</div>'
+      : '<div class="empty-state">No files yet — upload images or PDFs for booth photos, brochures, and plans.</div>';
+    return;
+  }
+
+  grid.innerHTML = '';
+  items.forEach((f) => {
+    const card = document.createElement('article');
+    card.className = 'file-card';
+    const thumbHtml = isImageFile(f)
+      ? `<img class="file-thumb" src="/api/files/${f.id}/content" alt="${esc(f.original_name)}" loading="lazy" />`
+      : '<div class="file-pdf-thumb" aria-hidden="true"><span class="file-pdf-label">PDF</span></div>';
+
+    card.innerHTML = `
+      <button type="button" class="file-thumb-btn" data-file-id="${f.id}" aria-label="Preview ${esc(f.original_name)}">
+        ${thumbHtml}
+      </button>
+      <div class="file-card-body">
+        <div class="file-name" title="${esc(f.original_name)}">${esc(f.original_name)}</div>
+        <input type="text" class="file-comment-input" data-file-id="${f.id}" placeholder="Add comment…" value="${esc(f.comment || '')}" />
+        <div class="file-meta">
+          <span title="${esc(fmtDateTime(f.updated_at))}">Updated ${timeAgo(f.updated_at)}</span>
+          <span class="file-size">${formatFileSize(f.size_bytes)}</span>
+        </div>
+      </div>
+      <button type="button" class="row-delete file-delete" data-file-id="${f.id}" title="Delete file">✕</button>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+async function saveFileComment(id, comment) {
+  const numId = parseRowId(id);
+  if (!numId) return;
+  const row = fileData.find((f) => parseRowId(f.id) === numId);
+  if (!row || String(row.comment ?? '') === String(comment)) return;
+
+  try {
+    const updated = await api(`/api/files/${numId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comment }),
+    });
+    Object.assign(row, updated);
+    if (previewFileId === numId) {
+      document.getElementById('previewComment').value = updated.comment || '';
+      document.getElementById('previewMeta').textContent = buildPreviewMeta(updated);
+    }
+    const metaSpan = document.querySelector(
+      `.file-comment-input[data-file-id="${row.id}"]`
+    )?.closest('.file-card')?.querySelector('.file-meta span');
+    if (metaSpan) {
+      metaSpan.textContent = `Updated ${timeAgo(updated.updated_at)}`;
+      metaSpan.title = fmtDateTime(updated.updated_at);
+    }
+    clearApiError();
+  } catch (err) {
+    showApiError(err);
+  }
+}
+
+function buildPreviewMeta(file) {
+  return `${file.original_name} · ${formatFileSize(file.size_bytes)} · Updated ${fmtDateTime(file.updated_at)}`;
+}
+
+function openFilePreview(id) {
+  const numId = parseRowId(id);
+  const file = fileData.find((f) => parseRowId(f.id) === numId);
+  if (!file) return;
+
+  previewFileId = numId;
+  const content = document.getElementById('previewContent');
+  if (isImageFile(file)) {
+    content.innerHTML = `<img class="preview-image" src="/api/files/${file.id}/content" alt="${esc(file.original_name)}" />`;
+  } else {
+    content.innerHTML = `<iframe class="preview-pdf" src="/api/files/${file.id}/content" title="${esc(file.original_name)}"></iframe>`;
+  }
+
+  document.getElementById('previewComment').value = file.comment || '';
+  document.getElementById('previewMeta').textContent = buildPreviewMeta(file);
+  const backdrop = document.getElementById('previewBackdrop');
+  backdrop.classList.add('open');
+  backdrop.setAttribute('aria-hidden', 'false');
+}
+
+function closeFilePreview() {
+  const backdrop = document.getElementById('previewBackdrop');
+  backdrop.classList.remove('open');
+  backdrop.setAttribute('aria-hidden', 'true');
+  document.getElementById('previewContent').innerHTML = '';
+  previewFileId = null;
+}
+
+async function deleteFile(id) {
+  const numId = parseRowId(id);
+  if (!numId) return;
+  const row = fileData.find((f) => parseRowId(f.id) === numId);
+  const label = row ? `"${row.original_name}"` : `file #${numId}`;
+  if (!confirm(`Delete ${label}? This cannot be undone.`)) return;
+
+  try {
+    await api(`/api/files/${numId}?who=${encodeURIComponent(currentUser)}`, { method: 'DELETE' });
+    if (previewFileId === numId) closeFilePreview();
+    await loadFiles();
+    clearApiError();
+  } catch (err) {
+    showApiError(err);
+  }
+}
+
+async function uploadFile(file) {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch('/api/files', { method: 'POST', credentials: 'same-origin', body: form });
+  if (res.status === 401) {
+    window.location.href = '/login.html';
+    throw new Error('Session expired');
+  }
+  if (!res.ok) {
+    let msg = `Upload failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body.error) msg = body.error;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function bindFileListeners() {
+  if (fileListenersBound) return;
+  fileListenersBound = true;
+
+  const wrap = document.querySelector('.file-grid-wrap');
+  wrap.addEventListener('click', (e) => {
+    const thumbBtn = e.target.closest('.file-thumb-btn[data-file-id]');
+    if (thumbBtn) {
+      e.preventDefault();
+      openFilePreview(thumbBtn.dataset.fileId);
+      return;
+    }
+    const delBtn = e.target.closest('.file-delete[data-file-id]');
+    if (delBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteFile(delBtn.dataset.fileId);
+    }
+  });
+
+  wrap.addEventListener('input', (e) => {
+    const inp = e.target;
+    if (!(inp instanceof HTMLInputElement) || !inp.classList.contains('file-comment-input')) return;
+    const fid = inp.dataset.fileId;
+    if (fileCommentTimers.has(fid)) clearTimeout(fileCommentTimers.get(fid));
+    fileCommentTimers.set(fid, setTimeout(() => {
+      fileCommentTimers.delete(fid);
+      saveFileComment(fid, inp.value);
+    }, 400));
+  });
+
+  wrap.addEventListener('focusout', (e) => {
+    const inp = e.target;
+    if (!(inp instanceof HTMLInputElement) || !inp.classList.contains('file-comment-input')) return;
+    const fid = inp.dataset.fileId;
+    if (fileCommentTimers.has(fid)) clearTimeout(fileCommentTimers.get(fid));
+    saveFileComment(fid, inp.value);
+  });
+
+  document.getElementById('fileSearchInput').addEventListener('input', (e) => {
+    fileSearchQuery = e.target.value;
+    renderFileGrid();
+  });
+
+  document.getElementById('uploadFileBtn').addEventListener('click', () => {
+    document.getElementById('fileInput').click();
+  });
+
+  document.getElementById('fileInput').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const row = await uploadFile(file);
+      fileData.unshift(row);
+      renderFileGrid();
+      clearApiError();
+    } catch (err) {
+      showApiError(err);
+    }
+  });
+
+  document.getElementById('exportFilesBtn').addEventListener('click', () => exportCsv('/api/files/export.csv'));
+
+  document.getElementById('previewClose').addEventListener('click', closeFilePreview);
+  document.getElementById('previewBackdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'previewBackdrop') closeFilePreview();
+  });
+
+  const previewComment = document.getElementById('previewComment');
+  let previewCommentTimer;
+  previewComment.addEventListener('input', () => {
+    if (!previewFileId) return;
+    clearTimeout(previewCommentTimer);
+    previewCommentTimer = setTimeout(() => saveFileComment(previewFileId, previewComment.value), 400);
+  });
+  previewComment.addEventListener('focusout', () => {
+    if (!previewFileId) return;
+    clearTimeout(previewCommentTimer);
+    saveFileComment(previewFileId, previewComment.value);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('previewBackdrop').classList.contains('open')) {
+      closeFilePreview();
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // ACTIVITY LOG
 // ═══════════════════════════════════════════════════════════════════════════════
 const ACTION_ICONS = {
@@ -820,6 +1083,7 @@ const ACTION_ICONS = {
   'Added budget item': '💰', 'Deleted budget item': '🗑️',
   'Captured lead': '🤝', 'Deleted lead': '🗑️',
   'Added traveler': '🛂', 'Removed traveler': '🗑️',
+  'Uploaded file': '📁', 'Deleted file': '🗑️',
 };
 
 async function loadActivity() {
@@ -1082,6 +1346,7 @@ function openModal(type, data) {
 // ═══════════════════════════════════════════════════════════════════════════════
 initIdentity();
 bindTaskListeners();
+bindFileListeners();
 
 document.getElementById('logoutBtn').addEventListener('click', async () => {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
