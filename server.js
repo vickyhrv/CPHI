@@ -108,7 +108,6 @@ app.get('/api/auth/me', (req, res) => {
 });
 
 app.use(authGate);
-app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
@@ -217,6 +216,17 @@ app.get('/api/budget/export.csv', (req, res) => {
 // ─── Tasks API ────────────────────────────────────────────────────────────────
 app.get('/api/tasks', (req, res) => res.json(store.all('tasks')));
 
+function sendTasksCsv(res) {
+  const rows = store.all('tasks');
+  const headers = ['id', 'phase', 'task', 'done', 'owner', 'due_date', 'notes', 'created_at'];
+  const exportRows = rows.map((t) => ({ ...t, done: t.done ? 'yes' : 'no' }));
+  sendCsv(res, 'cphi-tasks.csv', exportRows, headers);
+}
+
+// Export routes before /:id — Express 5 + static must not swallow these paths
+app.get('/api/tasks/export.csv', (req, res) => sendTasksCsv(res));
+app.get('/api/tasks/export', (req, res) => sendTasksCsv(res));
+
 app.post('/api/tasks', (req, res) => {
   const { phase = 'Other', task, owner = '', due_date = '', notes = '', who = '' } = req.body;
   if (!task) return res.status(400).json({ error: 'Task is required' });
@@ -226,25 +236,30 @@ app.post('/api/tasks', (req, res) => {
 });
 
 app.put('/api/tasks/:id', (req, res) => {
-  const id = parseIdParam(req.params.id);
-  if (!id) return res.status(400).json({ error: 'Invalid task id' });
-  const old = store.get('tasks', id);
-  if (!old) return res.status(404).json({ error: 'Task not found' });
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid task id' });
+    const old = store.get('tasks', id);
+    if (!old) return res.status(404).json({ error: 'Task not found' });
 
-  const { phase, task, done, owner, due_date, notes, who } = req.body;
-  const updated = store.update('tasks', id, {
-    phase: phase ?? old.phase,
-    task: task ?? old.task,
-    done: done !== undefined ? !!done : !!old.done,
-    owner: owner ?? old.owner ?? '',
-    due_date: due_date ?? old.due_date ?? '',
-    notes: notes !== undefined ? String(notes) : (old.notes ?? ''),
-  });
-  if (!updated) return res.status(404).json({ error: 'Task not found' });
-  if (!old.done && updated.done) {
-    logActivity('Completed task', `"${updated.task}"`, who || '');
+    const { phase, task, done, owner, due_date, notes, who } = req.body || {};
+    const updated = store.update('tasks', id, {
+      phase: phase ?? old.phase,
+      task: task ?? old.task,
+      done: done !== undefined ? !!done : !!old.done,
+      owner: owner ?? old.owner ?? '',
+      due_date: due_date ?? old.due_date ?? '',
+      notes: notes !== undefined ? String(notes) : (old.notes ?? ''),
+    });
+    if (!updated) return res.status(404).json({ error: 'Task not found' });
+    if (!old.done && updated.done) {
+      logActivity('Completed task', `"${updated.task}"`, who || '');
+    }
+    res.json(updated);
+  } catch (err) {
+    console.error('PUT /api/tasks/:id', err);
+    res.status(500).json({ error: 'Failed to save task — try again' });
   }
-  res.json(updated);
 });
 
 app.delete('/api/tasks/:id', (req, res) => {
@@ -255,13 +270,6 @@ app.delete('/api/tasks/:id', (req, res) => {
   store.remove('tasks', id);
   logActivity('Deleted task', `"${row.task}"`, whoFromReq(req));
   res.json({ ok: true, deletedId: id });
-});
-
-app.get('/api/tasks/export.csv', (req, res) => {
-  const rows = store.all('tasks');
-  const headers = ['id', 'phase', 'task', 'done', 'owner', 'due_date', 'notes', 'created_at'];
-  const exportRows = rows.map((t) => ({ ...t, done: t.done ? 'yes' : 'no' }));
-  sendCsv(res, 'cphi-tasks.csv', exportRows, headers);
 });
 
 // ─── Leads API ────────────────────────────────────────────────────────────────
@@ -370,6 +378,9 @@ app.get('/api/activity/export.csv', (req, res) => {
   const logs = store.all('activity_log').sort((a, b) => new Date(b.ts) - new Date(a.ts));
   sendCsv(res, 'cphi-activity.csv', logs, ['id', 'action', 'detail', 'who', 'ts']);
 });
+
+// Static files after all API routes (avoids 404 on /api/*/export.csv)
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Error handling ───────────────────────────────────────────────────────────
 app.use((err, req, res, _next) => {

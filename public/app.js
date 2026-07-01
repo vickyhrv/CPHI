@@ -28,13 +28,43 @@ function showApiError(err) {
   }
 }
 
+function clearApiError() {
+  const banner = document.getElementById('apiErrorBanner');
+  if (banner) banner.style.display = 'none';
+}
+
 function parseRowId(id) {
   const numId = parseInt(String(id), 10);
   return Number.isFinite(numId) && numId > 0 ? numId : null;
 }
 
-function exportCsv(path) {
-  window.location.href = path;
+async function exportCsv(path) {
+  try {
+    const res = await fetch(path, { credentials: 'same-origin' });
+    if (res.status === 401) {
+      window.location.href = '/login.html';
+      return;
+    }
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text.slice(0, 120) || `Export failed (${res.status})`);
+    }
+    const cd = res.headers.get('content-disposition') || '';
+    const match = cd.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : 'export.csv';
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    clearApiError();
+  } catch (err) {
+    showApiError(err);
+  }
 }
 
 const deleteLocks = {
@@ -339,15 +369,45 @@ document.getElementById('exportBudgetBtn').addEventListener('click', () => expor
 // ═══════════════════════════════════════════════════════════════════════════════
 let taskData = [];
 let taskListenersBound = false;
+const taskSaveTimers = new Map();
+
+function taskPutBody(row) {
+  return {
+    phase: row.phase ?? '',
+    task: row.task ?? '',
+    done: !!row.done,
+    owner: row.owner ?? '',
+    due_date: row.due_date ?? '',
+    notes: row.notes ?? '',
+    who: currentUser,
+  };
+}
+
+function scheduleTaskFieldSave(rowId, field, value, delayMs = 400) {
+  const key = `${rowId}:${field}`;
+  const existing = taskSaveTimers.get(key);
+  if (existing) clearTimeout(existing);
+  if (delayMs <= 0) {
+    taskSaveTimers.delete(key);
+    saveTaskRow(rowId, field, value);
+    return;
+  }
+  taskSaveTimers.set(key, setTimeout(() => {
+    taskSaveTimers.delete(key);
+    saveTaskRow(rowId, field, value);
+  }, delayMs));
+}
 
 function bindTaskListeners() {
   if (taskListenersBound) return;
   taskListenersBound = true;
   const container = document.getElementById('taskPhases');
+  if (!container) return;
 
   container.addEventListener('change', (e) => {
     const inp = e.target;
     if (!(inp instanceof HTMLInputElement)) return;
+    if (inp.classList.contains('notes-input')) return;
     const rowEl = inp.closest('.task-row');
     const rowId = rowEl?.dataset?.rowId;
     if (!rowId) return;
@@ -356,15 +416,20 @@ function bindTaskListeners() {
     else if (inp.classList.contains('task-text-input')) saveTaskRow(rowId, 'task', inp.value);
     else if (inp.classList.contains('owner-input')) saveTaskRow(rowId, 'owner', inp.value);
     else if (inp.classList.contains('due-input')) saveTaskRow(rowId, 'due_date', inp.value);
-    else if (inp.classList.contains('notes-input')) saveTaskRow(rowId, 'notes', inp.value);
   });
 
-  // Notes: also save on blur (change alone is easy to miss)
+  container.addEventListener('input', (e) => {
+    const inp = e.target;
+    if (!(inp instanceof HTMLInputElement) || !inp.classList.contains('notes-input')) return;
+    const rowId = inp.closest('.task-row')?.dataset?.rowId;
+    if (rowId) scheduleTaskFieldSave(rowId, 'notes', inp.value);
+  });
+
   container.addEventListener('focusout', (e) => {
     const inp = e.target;
     if (!(inp instanceof HTMLInputElement) || !inp.classList.contains('notes-input')) return;
     const rowId = inp.closest('.task-row')?.dataset?.rowId;
-    if (rowId) saveTaskRow(rowId, 'notes', inp.value);
+    if (rowId) scheduleTaskFieldSave(rowId, 'notes', inp.value, 0);
   });
 }
 
@@ -392,12 +457,15 @@ async function saveTaskRow(id, field, value) {
   }
   refreshTaskStats();
   try {
+    const payload = taskPutBody(row);
+    payload[field] = field === 'done' ? !!value : value;
     const updated = await api(`/api/tasks/${numId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...row, who: currentUser }),
+      body: JSON.stringify(payload),
     });
     Object.assign(row, updated);
+    clearApiError();
     if (field === 'done') renderTasks();
   } catch (err) {
     showApiError(err);
@@ -1029,6 +1097,7 @@ async function bootstrapApp() {
   }
   await loadSettings();
   await Promise.all([loadBudget(), loadTasks(), loadLeads(), loadTravelers()]);
+  clearApiError();
 }
 
 bootstrapApp().catch(showApiError);
