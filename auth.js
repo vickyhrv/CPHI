@@ -106,6 +106,7 @@ const PUBLIC_PATHS = new Set([
   '/login.js',
   '/hrv-logo.png',
   '/hrv-parrots.png',
+  '/hrv.png',
 ]);
 
 function isPublicPath(pathname) {
