@@ -142,3 +142,35 @@ sudo certbot --nginx -d cphi-milan.hrvglobal.ai
 ```bash
 node -v   # must be v22.x or higher
 ```
+
+**Nginx failed to start** (setup stops at `Job for nginx.service failed`):
+
+```bash
+sudo systemctl status nginx.service
+sudo journalctl -xeu nginx.service --no-pager | tail -40
+sudo ss -tlnp | grep ':80'
+```
+
+Common fixes:
+
+```bash
+# 1) Something else on port 80 (apache, old nginx)
+sudo systemctl stop apache2 2>/dev/null || true
+sudo systemctl disable apache2 2>/dev/null || true
+
+# 2) Re-apply nginx config (IPv4-only — fixes Lightsail IPv6 issue)
+sudo cp /opt/cphi-app/deploy/nginx/cphi-milan.conf /etc/nginx/sites-available/cphi-milan.conf
+sudo ln -sf /etc/nginx/sites-available/cphi-milan.conf /etc/nginx/sites-enabled/cphi-milan.conf
+sudo rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/default.conf
+sudo nginx -t && sudo systemctl restart nginx
+
+# 3) Finish SSL after nginx is up
+sudo certbot --nginx -d cphi-milan.hrvglobal.ai
+```
+
+**Login does not work** — template passwords are placeholders until you edit the server file:
+
+```bash
+sudo nano /etc/cphi-app/users.json
+sudo systemctl restart cphi-app
+```

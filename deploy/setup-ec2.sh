@@ -101,6 +101,23 @@ fix_app_permissions() {
   chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
 }
 
+ensure_nginx_can_start() {
+  # Another web server often holds port 80 on fresh VPS images
+  for svc in apache2 httpd; do
+    if systemctl is-active --quiet "${svc}" 2>/dev/null; then
+      echo "    Stopping ${svc} (conflicts with nginx on port 80)..."
+      systemctl stop "${svc}" || true
+      systemctl disable "${svc}" || true
+    fi
+  done
+  if command -v ss >/dev/null 2>&1; then
+    if ss -tlnp | grep -q ':80 '; then
+      echo "    Port 80 in use before nginx start:"
+      ss -tlnp | grep ':80 ' || true
+    fi
+  fi
+}
+
 echo "==> Cloning application..."
 if [[ ! -d "${APP_DIR}/.git" ]]; then
   git clone "${GIT_REPO}" "${APP_DIR}"
@@ -154,10 +171,18 @@ if [[ -d /etc/nginx/sites-enabled ]]; then
   ln -sf /etc/nginx/sites-available/cphi-milan.conf /etc/nginx/sites-enabled/cphi-milan.conf
   rm -f /etc/nginx/sites-enabled/default
 fi
+rm -f /etc/nginx/conf.d/default.conf 2>/dev/null || true
 
+ensure_nginx_can_start
 nginx -t
 systemctl enable nginx
-systemctl restart nginx
+if ! systemctl restart nginx; then
+  echo "ERROR: nginx failed to start. Run:"
+  echo "  sudo systemctl status nginx.service"
+  echo "  sudo journalctl -xeu nginx.service --no-pager | tail -40"
+  echo "  sudo ss -tlnp | grep ':80'"
+  exit 1
+fi
 
 echo "==> Firewall (UFW on Ubuntu)..."
 if command -v ufw >/dev/null 2>&1; then
