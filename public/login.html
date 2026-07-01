@@ -3,19 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sign in · HRV CPHI Milan 2026</title>
+  <title>HRV @ CPHI Milan 2026 · Team Planner</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/login.css" />
 </head>
 <body>
   <div class="login-scene">
-    <div class="login-glow login-glow-a"></div>
-    <div class="login-glow login-glow-b"></div>
-    <div class="login-grid"></div>
-
     <div class="login-shell">
+
+      <!-- ── Left hero panel ── -->
       <aside class="login-hero">
         <div class="hero-top">
           <img src="/hrv-logo.png" alt="HRV Pharma" class="hero-logo" />
@@ -24,43 +22,49 @@
 
         <div class="hero-body">
           <p class="hero-eyebrow">CPHI Worldwide · Milan 2026</p>
-          <h1 class="hero-title">Your booth.<br />Your plan.<br />One command centre.</h1>
-          <p class="hero-copy">
-            Budget, tasks, leads, visas — everything your Milan team needs,
-            secured behind team login.
-          </p>
+          <h1 class="hero-title">Milan is calling.<br />HRV is ready.</h1>
         </div>
 
-        <div class="hero-visual">
-          <img src="/hrv-parrots.png" alt="" class="hero-parrots" aria-hidden="true" />
-          <div class="hero-stats">
-            <div class="hero-stat">
-              <span class="hero-stat-num">6–8</span>
-              <span class="hero-stat-label">Oct 2026</span>
-            </div>
-            <div class="hero-stat">
-              <span class="hero-stat-num">Fiera</span>
-              <span class="hero-stat-label">Milano, Rho</span>
-            </div>
+        <div class="hero-image-wrap">
+          <img src="/cphi-milan.jpg" alt="CPHI Milan 2026 — Fiera Milano" class="hero-event-img" />
+          <div class="hero-image-chip">
+            <span class="chip-icon">📍</span>
+            <span>Hall 18, Stand F42 · Fiera Milano</span>
           </div>
         </div>
 
-        <p class="hero-foot">Three letters. One standard. 🦜</p>
+        <div class="hero-stats">
+          <div class="hero-stat">
+            <span class="hero-stat-num">6–8</span>
+            <span class="hero-stat-label">Oct 2026</span>
+          </div>
+          <div class="hero-stat">
+            <span class="hero-stat-num">Milan</span>
+            <span class="hero-stat-label">Italy</span>
+          </div>
+          <div class="hero-stat">
+            <span class="hero-stat-num">CPHI</span>
+            <span class="hero-stat-label">Worldwide</span>
+          </div>
+        </div>
       </aside>
 
+      <!-- ── Right login panel ── -->
       <main class="login-panel">
         <div class="login-card">
           <div class="login-card-head">
             <img src="/hrv-logo.png" alt="" class="login-card-logo" aria-hidden="true" />
-            <h2>Welcome back</h2>
-            <p>Sign in with your team credentials to open the planner.</p>
+            <h2>Team sign in</h2>
+            <p>Enter your credentials to access the CPHI Milan planner.</p>
           </div>
 
           <form id="loginForm" class="login-form" autocomplete="on">
             <div class="field">
               <label for="username">Username</label>
               <div class="input-wrap">
-                <span class="input-icon" aria-hidden="true">👤</span>
+                <span class="input-icon" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5.5" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 13.5c0-2.485 2.462-4.5 5.5-4.5s5.5 2.015 5.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                </span>
                 <input id="username" name="username" type="text" autocomplete="username" placeholder="e.g. hrvadmin" required />
               </div>
             </div>
@@ -68,25 +72,30 @@
             <div class="field">
               <label for="password">Password</label>
               <div class="input-wrap">
-                <span class="input-icon" aria-hidden="true">🔒</span>
+                <span class="input-icon" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="7" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5 7V5a3 3 0 016 0v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                </span>
                 <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Your team password" required />
-                <button type="button" class="toggle-pass" id="togglePass" aria-label="Show password">👁</button>
+                <button type="button" class="toggle-pass" id="togglePass" aria-label="Show password">
+                  <svg id="eyeIcon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/></svg>
+                </button>
               </div>
             </div>
 
             <p id="loginError" class="login-error" role="alert" hidden></p>
 
             <button type="submit" class="login-submit" id="loginBtn">
-              <span class="login-submit-text">Enter planner</span>
+              <span class="login-submit-text">Open command centre</span>
               <span class="login-submit-arrow">→</span>
             </button>
           </form>
 
-          <p class="login-hint">Milan prep starts here. Keep credentials within the team.</p>
+          <p class="login-hint">CPHI Milan 2026 · HRV team only · Keep credentials private.</p>
         </div>
 
-        <p class="login-legal">© HRV Pharma · CPHI Milan 2026 internal tool</p>
+        <p class="login-legal">© HRV Pharma · CPHI Worldwide Milan 2026 ·</p>
       </main>
+
     </div>
   </div>
   <script src="/login.js"></script>
