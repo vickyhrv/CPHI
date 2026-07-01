@@ -130,6 +130,27 @@ function logActivity(action, detail, who) {
   store.insert('activity_log', { action, detail, who: who || 'Unknown', ts: new Date().toISOString() });
 }
 
+function parseIdParam(id) {
+  const num = Number(id);
+  return Number.isInteger(num) && num >= 1 ? num : null;
+}
+
+function toCsv(rows, headers) {
+  return [headers.join(',')].concat(
+    rows.map((r) => headers.map((h) => `"${String(r[h] ?? '').replace(/"/g, '""')}"`).join(','))
+  ).join('\n');
+}
+
+function sendCsv(res, filename, rows, headers) {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send('\uFEFF' + toCsv(rows, headers));
+}
+
+function whoFromReq(req) {
+  return req.body?.who || req.query?.who || '';
+}
+
 // ─── Settings API ─────────────────────────────────────────────────────────────
 app.get('/api/settings', (req, res) => {
   const rows = store.all('settings');
@@ -171,10 +192,26 @@ app.put('/api/budget/:id', (req, res) => {
 });
 
 app.delete('/api/budget/:id', (req, res) => {
-  const row = store.get('budget_items', req.params.id);
-  store.remove('budget_items', req.params.id);
-  logActivity('Deleted budget item', `"${row ? row.item : req.params.id}"`, req.body.who || req.query.who || '');
-  res.json({ ok: true });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return res.status(400).json({ error: 'Invalid budget item id' });
+  }
+  const row = store.get('budget_items', id);
+  if (!row) {
+    return res.status(404).json({ error: 'Budget item not found' });
+  }
+  store.remove('budget_items', id);
+  logActivity('Deleted budget item', `"${row.item}"`, whoFromReq(req));
+  res.json({ ok: true, deletedId: id });
+});
+
+app.get('/api/budget/export.csv', (req, res) => {
+  const rows = store.all('budget_items');
+  const headers = [
+    'id', 'category', 'item', 'last_year', 'this_year_est', 'actual', 'notes',
+    'vendor', 'poc_name', 'poc_email', 'poc_phone', 'merchandise_notes', 'created_at',
+  ];
+  sendCsv(res, 'cphi-budget.csv', rows, headers);
 });
 
 // ─── Tasks API ────────────────────────────────────────────────────────────────
@@ -200,10 +237,20 @@ app.put('/api/tasks/:id', (req, res) => {
 });
 
 app.delete('/api/tasks/:id', (req, res) => {
-  const row = store.get('tasks', req.params.id);
-  store.remove('tasks', req.params.id);
-  logActivity('Deleted task', `"${row ? row.task : req.params.id}"`, req.body.who || req.query.who || '');
-  res.json({ ok: true });
+  const id = parseIdParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Invalid task id' });
+  const row = store.get('tasks', id);
+  if (!row) return res.status(404).json({ error: 'Task not found' });
+  store.remove('tasks', id);
+  logActivity('Deleted task', `"${row.task}"`, whoFromReq(req));
+  res.json({ ok: true, deletedId: id });
+});
+
+app.get('/api/tasks/export.csv', (req, res) => {
+  const rows = store.all('tasks');
+  const headers = ['id', 'phase', 'task', 'done', 'owner', 'due_date', 'created_at'];
+  const exportRows = rows.map((t) => ({ ...t, done: t.done ? 'yes' : 'no' }));
+  sendCsv(res, 'cphi-tasks.csv', exportRows, headers);
 });
 
 // ─── Leads API ────────────────────────────────────────────────────────────────
@@ -223,22 +270,20 @@ app.post('/api/leads', (req, res) => {
 });
 
 app.delete('/api/leads/:id', (req, res) => {
-  const row = store.get('leads', req.params.id);
-  store.remove('leads', req.params.id);
-  logActivity('Deleted lead', `${row ? row.name : req.params.id}`, req.body.who || req.query.who || '');
-  res.json({ ok: true });
+  const id = parseIdParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Invalid lead id' });
+  const row = store.get('leads', id);
+  if (!row) return res.status(404).json({ error: 'Lead not found' });
+  store.remove('leads', id);
+  logActivity('Deleted lead', row.name, whoFromReq(req));
+  res.json({ ok: true, deletedId: id });
 });
 
 app.get('/api/leads/export.csv', (req, res) => {
   const leads = store.all('leads').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  const headers = ['id','name','company','role','email','phone','country','interest',
-    'priority','notes','captured_by','follow_up_date','created_at'];
-  const csv = [headers.join(',')].concat(
-    leads.map(l => headers.map(h => `"${String(l[h] ?? '').replace(/"/g, '""')}"`).join(','))
-  ).join('\n');
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="cphi-leads.csv"');
-  res.send(csv);
+  const headers = ['id', 'name', 'company', 'role', 'email', 'phone', 'country', 'interest',
+    'priority', 'notes', 'captured_by', 'follow_up_date', 'created_at'];
+  sendCsv(res, 'cphi-leads.csv', leads, headers);
 });
 
 // ─── Travelers / Visa API ─────────────────────────────────────────────────────
@@ -273,10 +318,33 @@ app.put('/api/travelers/:id', (req, res) => {
 });
 
 app.delete('/api/travelers/:id', (req, res) => {
-  const row = store.get('travelers', req.params.id);
-  store.remove('travelers', req.params.id);
-  logActivity('Removed traveler', row ? row.name : req.params.id, req.body.who || req.query.who || '');
-  res.json({ ok: true });
+  const id = parseIdParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Invalid traveler id' });
+  const row = store.get('travelers', id);
+  if (!row) return res.status(404).json({ error: 'Traveler not found' });
+  store.remove('travelers', id);
+  logActivity('Removed traveler', row.name, whoFromReq(req));
+  res.json({ ok: true, deletedId: id });
+});
+
+app.get('/api/travelers/export.csv', (req, res) => {
+  const rows = store.all('travelers');
+  const headers = [
+    'id', 'name', 'passport', 'passport_expiry',
+    'visa_applied', 'visa_received', 'flight_booked', 'hotel_booked',
+    'insurance', 'forex', 'visa_apply_due', 'flight_due', 'hotel_due',
+    'notes', 'created_at',
+  ];
+  const exportRows = rows.map((t) => ({
+    ...t,
+    visa_applied: t.visa_applied ? 'yes' : 'no',
+    visa_received: t.visa_received ? 'yes' : 'no',
+    flight_booked: t.flight_booked ? 'yes' : 'no',
+    hotel_booked: t.hotel_booked ? 'yes' : 'no',
+    insurance: t.insurance ? 'yes' : 'no',
+    forex: t.forex ? 'yes' : 'no',
+  }));
+  sendCsv(res, 'cphi-travelers.csv', exportRows, headers);
 });
 
 // ─── Activity log API ─────────────────────────────────────────────────────────
@@ -285,6 +353,11 @@ app.get('/api/activity', (req, res) => {
     .sort((a, b) => new Date(b.ts) - new Date(a.ts))
     .slice(0, 200);
   res.json(logs);
+});
+
+app.get('/api/activity/export.csv', (req, res) => {
+  const logs = store.all('activity_log').sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  sendCsv(res, 'cphi-activity.csv', logs, ['id', 'action', 'detail', 'who', 'ts']);
 });
 
 // ─── Error handling ───────────────────────────────────────────────────────────

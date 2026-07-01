@@ -28,6 +28,22 @@ function showApiError(err) {
   }
 }
 
+function parseRowId(id) {
+  const numId = parseInt(String(id), 10);
+  return Number.isFinite(numId) && numId > 0 ? numId : null;
+}
+
+function exportCsv(path) {
+  window.location.href = path;
+}
+
+const deleteLocks = {
+  budget: false,
+  task: false,
+  lead: false,
+  traveler: false,
+};
+
 // ── Identity (who is using the app) ──────────────────────────────────────────
 let currentUser = localStorage.getItem('cphi_user') || '';
 
@@ -188,23 +204,34 @@ async function loadBudget() {
   renderBudget();
 }
 
+function refreshBudgetTotals() {
+  let totLast = 0, totEst = 0, totActual = 0;
+  budgetData.forEach(row => {
+    totLast   += Number(row.last_year)     || 0;
+    totEst    += Number(row.this_year_est) || 0;
+    totActual += Number(row.actual)        || 0;
+  });
+  document.getElementById('totalLastYear').textContent = fmt(totLast);
+  document.getElementById('totalEst').textContent      = fmt(totEst);
+  document.getElementById('totalActual').textContent   = fmt(totActual);
+  document.getElementById('statBudgetEst').textContent    = fmt(totEst);
+  document.getElementById('statBudgetActual').textContent = fmt(totActual) + ' actual so far';
+  updateCapBar(totEst);
+}
+
 function renderBudget() {
   const body = document.getElementById('budgetBody');
   body.innerHTML = '';
-  let totLast = 0, totEst = 0, totActual = 0;
 
   budgetData.forEach(row => {
-    totLast   += Number(row.last_year)    || 0;
-    totEst    += Number(row.this_year_est)|| 0;
-    totActual += Number(row.actual)       || 0;
-
     const tr = document.createElement('tr');
+    tr.dataset.id = row.id;
     tr.innerHTML = `
       <td><input value="${esc(row.category)}" data-field="category" style="width:90px"/></td>
       <td><input value="${esc(row.item)}" data-field="item" /></td>
       <td>
         <div class="vendor-detail">
-          <button class="vendor-expand-btn" data-id="${row.id}">
+          <button type="button" class="vendor-expand-btn" data-id="${row.id}">
             ${row.vendor ? esc(row.vendor) : '+ vendor / POC'}
           </button>
           <div class="vendor-fields" id="vf_${row.id}">
@@ -220,7 +247,7 @@ function renderBudget() {
       <td><input class="num-input" type="number" value="${row.this_year_est||0}" data-field="this_year_est" style="width:80px"/></td>
       <td><input class="num-input" type="number" value="${row.actual||0}" data-field="actual" style="width:80px"/></td>
       <td><input value="${esc(row.notes||'')}" data-field="notes" /></td>
-      <td><button class="row-delete" title="Delete">✕</button></td>
+      <td><button type="button" class="row-delete" data-row-id="${row.id}" title="Delete this line only">✕</button></td>
     `;
 
     // Vendor expand toggle
@@ -231,47 +258,81 @@ function renderBudget() {
 
     // Save any input on change
     tr.querySelectorAll('input').forEach(inp => {
-      inp.addEventListener('change', () => saveBudgetRow(row.id, inp.dataset.field, inp.value));
+      const rowId = row.id;
+      inp.addEventListener('change', () => saveBudgetRow(rowId, inp.dataset.field, inp.value));
     });
 
-    tr.querySelector('.row-delete').addEventListener('click', () => deleteBudgetRow(row.id));
     body.appendChild(tr);
   });
 
-  document.getElementById('totalLastYear').textContent = fmt(totLast);
-  document.getElementById('totalEst').textContent      = fmt(totEst);
-  document.getElementById('totalActual').textContent   = fmt(totActual);
-  document.getElementById('statBudgetEst').textContent    = fmt(totEst);
-  document.getElementById('statBudgetActual').textContent = fmt(totActual) + ' actual so far';
-  updateCapBar(totEst);
+  refreshBudgetTotals();
 }
 
 async function saveBudgetRow(id, field, value) {
-  const row = budgetData.find(r => r.id === id);
+  const numId = parseRowId(id);
+  if (!numId) return;
+  const row = budgetData.find(r => parseRowId(r.id) === numId);
   if (!row) return;
   row[field] = value;
-  await api(`/api/budget/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(row)
-  });
-  renderBudget();
+  refreshBudgetTotals();
+  try {
+    await api(`/api/budget/${numId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(row)
+    });
+  } catch (err) {
+    showApiError(err);
+    loadBudget();
+  }
 }
 
 async function deleteBudgetRow(id) {
-  if (!confirm('Delete this budget line?')) return;
-  await api(`/api/budget/${id}?who=${encodeURIComponent(currentUser)}`, { method: 'DELETE' });
-  loadBudget();
+  if (deleteLocks.budget) return;
+  const numId = parseRowId(id);
+  if (!numId) {
+    showApiError(new Error('Could not delete this row — refresh the page and try again.'));
+    return;
+  }
+
+  const row = budgetData.find(r => parseRowId(r.id) === numId);
+  const label = row ? `"${row.item}"` : `line #${numId}`;
+  if (!confirm(`Delete only ${label}? Other rows will stay.`)) return;
+
+  deleteLocks.budget = true;
+  try {
+    await api(`/api/budget/${numId}?who=${encodeURIComponent(currentUser)}`, { method: 'DELETE' });
+    await loadBudget();
+  } catch (err) {
+    showApiError(err);
+    await loadBudget();
+  } finally {
+    deleteLocks.budget = false;
+  }
 }
 
-document.getElementById('addBudgetBtn').addEventListener('click', async () => {
-  await api('/api/budget', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ category: 'Other', item: 'New item', last_year: 0, this_year_est: 0, actual: 0, notes: '', who: currentUser })
-  });
-  loadBudget();
+document.getElementById('budgetBody').addEventListener('click', (e) => {
+  const btn = e.target.closest('button.row-delete[data-row-id]');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  deleteBudgetRow(btn.dataset.rowId);
 });
+
+document.getElementById('addBudgetBtn').addEventListener('click', async () => {
+  try {
+    await api('/api/budget', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'Other', item: 'New item', last_year: 0, this_year_est: 0, actual: 0, notes: '', who: currentUser })
+    });
+    await loadBudget();
+  } catch (err) {
+    showApiError(err);
+  }
+});
+
+document.getElementById('exportBudgetBtn').addEventListener('click', () => exportCsv('/api/budget/export.csv'));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TASKS
@@ -310,6 +371,7 @@ function renderTasks() {
     items.forEach(t => {
       const row = document.createElement('div');
       row.className = 'task-row' + (t.done ? ' task-done' : '');
+      row.dataset.rowId = t.id;
       const overdue = !t.done && isOverdue(t.due_date);
 
       row.innerHTML = `
@@ -319,28 +381,27 @@ function renderTasks() {
         <input class="due-input ${overdue ? 'overdue' : ''}" type="date" value="${esc(t.due_date||'')}" title="${overdue ? 'Overdue!' : 'Due date'}" />
         <div class="task-actions">
           ${t.owner && t.owner.includes('@')
-            ? `<button class="email-btn" title="Send follow-up email to ${esc(t.owner)}">📧</button>`
-            : `<button class="email-btn" title="WhatsApp follow-up">💬</button>`
+            ? `<button type="button" class="email-btn" title="Send follow-up email to ${esc(t.owner)}">📧</button>`
+            : `<button type="button" class="email-btn" title="WhatsApp follow-up">💬</button>`
           }
         </div>
-        <button class="row-delete" title="Delete">✕</button>
+        <button type="button" class="row-delete" data-row-id="${t.id}" title="Delete this task only">✕</button>
       `;
 
+      const rowId = t.id;
       row.querySelector('input[type=checkbox]').addEventListener('change', e => {
-        updateTask(t.id, { ...t, done: e.target.checked ? 1 : 0, who: currentUser });
+        updateTask(rowId, { ...t, done: e.target.checked, who: currentUser });
       });
       row.querySelector('.task-text-input').addEventListener('change', e => {
-        updateTask(t.id, { ...t, task: e.target.value });
+        updateTask(rowId, { ...t, task: e.target.value });
       });
       row.querySelector('.owner-input').addEventListener('change', e => {
-        updateTask(t.id, { ...t, owner: e.target.value });
+        updateTask(rowId, { ...t, owner: e.target.value });
       });
       row.querySelector('.due-input').addEventListener('change', e => {
-        updateTask(t.id, { ...t, due_date: e.target.value });
+        updateTask(rowId, { ...t, due_date: e.target.value });
       });
-      row.querySelector('.row-delete').addEventListener('click', () => deleteTask(t.id, t.task));
 
-      // Follow-up button
       row.querySelector('.email-btn').addEventListener('click', () => {
         const owner = t.owner || '';
         if (owner.includes('@')) {
@@ -359,21 +420,56 @@ function renderTasks() {
 }
 
 async function updateTask(id, body) {
-  await api(`/api/tasks/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...body, who: currentUser })
-  });
-  loadTasks();
+  const numId = parseRowId(id);
+  if (!numId) return;
+  try {
+    const updated = await api(`/api/tasks/${numId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, who: currentUser })
+    });
+    const idx = taskData.findIndex(t => parseRowId(t.id) === numId);
+    if (idx >= 0) taskData[idx] = updated;
+    renderTasks();
+  } catch (err) {
+    showApiError(err);
+    await loadTasks();
+  }
 }
 
-async function deleteTask(id, name) {
-  if (!confirm(`Delete task "${name}"?`)) return;
-  await api(`/api/tasks/${id}?who=${encodeURIComponent(currentUser)}`, { method: 'DELETE' });
-  loadTasks();
+async function deleteTask(id) {
+  if (deleteLocks.task) return;
+  const numId = parseRowId(id);
+  if (!numId) {
+    showApiError(new Error('Could not delete this task — refresh and try again.'));
+    return;
+  }
+  const row = taskData.find(t => parseRowId(t.id) === numId);
+  const label = row ? `"${row.task}"` : `task #${numId}`;
+  if (!confirm(`Delete only ${label}? Other tasks will stay.`)) return;
+
+  deleteLocks.task = true;
+  try {
+    await api(`/api/tasks/${numId}?who=${encodeURIComponent(currentUser)}`, { method: 'DELETE' });
+    await loadTasks();
+  } catch (err) {
+    showApiError(err);
+    await loadTasks();
+  } finally {
+    deleteLocks.task = false;
+  }
 }
+
+document.getElementById('taskPhases').addEventListener('click', (e) => {
+  const btn = e.target.closest('button.row-delete[data-row-id]');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  deleteTask(btn.dataset.rowId);
+});
 
 document.getElementById('addTaskBtn').addEventListener('click', () => openModal('task'));
+document.getElementById('exportTasksBtn').addEventListener('click', () => exportCsv('/api/tasks/export.csv'));
 
 // WhatsApp tasks summary
 document.getElementById('whatsappTasksBtn').addEventListener('click', () => {
@@ -393,10 +489,12 @@ document.getElementById('whatsappTasksBtn').addEventListener('click', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // LEADS
 // ═══════════════════════════════════════════════════════════════════════════════
+let leadData = [];
+
 async function loadLeads() {
-  const leads = await api('/api/leads');
-  renderLeads(leads);
-  document.getElementById('statLeads').textContent = leads.length;
+  leadData = await api('/api/leads');
+  renderLeads(leadData);
+  document.getElementById('statLeads').textContent = leadData.length;
 }
 
 function renderLeads(leads) {
@@ -410,7 +508,7 @@ function renderLeads(leads) {
     const card = document.createElement('div');
     card.className = 'lead-card';
     card.innerHTML = `
-      <button class="row-delete" title="Delete">✕</button>
+      <button type="button" class="row-delete" data-row-id="${l.id}" title="Delete this lead only">✕</button>
       <span class="priority-badge priority-${esc(l.priority)}">${esc(l.priority)}</span>
       <div class="lead-name">${esc(l.name)}</div>
       <div class="lead-company">${esc(l.role)}${l.role && l.company ? ' · ' : ''}${esc(l.company)}</div>
@@ -421,13 +519,8 @@ function renderLeads(leads) {
       ${l.notes    ? `<div class="lead-field"><span>Notes:</span> ${esc(l.notes)}</div>` : ''}
       ${l.follow_up_date ? `<div class="lead-followup">📅 Follow up: ${fmtDate(l.follow_up_date)}</div>` : ''}
       <div class="lead-field" style="margin-top:6px"><span>By:</span> ${esc(l.captured_by||'—')} · <span>${timeAgo(l.created_at)}</span></div>
-      ${l.email ? `<button class="btn-ghost" style="margin-top:8px;padding:4px 0" data-email="${esc(l.email)}" data-name="${esc(l.name)}">📧 Follow-up email</button>` : ''}
+      ${l.email ? `<button type="button" class="btn-ghost" style="margin-top:8px;padding:4px 0" data-email="${esc(l.email)}" data-name="${esc(l.name)}">📧 Follow-up email</button>` : ''}
     `;
-    card.querySelector('.row-delete').addEventListener('click', async () => {
-      if (!confirm(`Delete lead for ${l.name}?`)) return;
-      await api(`/api/leads/${l.id}?who=${encodeURIComponent(currentUser)}`, { method: 'DELETE' });
-      loadLeads();
-    });
     const emailBtn = card.querySelector('[data-email]');
     if (emailBtn) {
       emailBtn.addEventListener('click', () => {
@@ -445,10 +538,39 @@ function renderLeads(leads) {
   });
 }
 
-document.getElementById('newLeadBtn').addEventListener('click', () => openModal('lead'));
-document.getElementById('exportLeadsBtn').addEventListener('click', () => {
-  window.location.href = '/api/leads/export.csv';
+async function deleteLead(id) {
+  if (deleteLocks.lead) return;
+  const numId = parseRowId(id);
+  if (!numId) {
+    showApiError(new Error('Could not delete this lead — refresh and try again.'));
+    return;
+  }
+  const row = leadData.find(l => parseRowId(l.id) === numId);
+  const label = row ? row.name : `lead #${numId}`;
+  if (!confirm(`Delete only ${label}? Other leads will stay.`)) return;
+
+  deleteLocks.lead = true;
+  try {
+    await api(`/api/leads/${numId}?who=${encodeURIComponent(currentUser)}`, { method: 'DELETE' });
+    await loadLeads();
+  } catch (err) {
+    showApiError(err);
+    await loadLeads();
+  } finally {
+    deleteLocks.lead = false;
+  }
+}
+
+document.getElementById('leadList').addEventListener('click', (e) => {
+  const btn = e.target.closest('button.row-delete[data-row-id]');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  deleteLead(btn.dataset.rowId);
 });
+
+document.getElementById('newLeadBtn').addEventListener('click', () => openModal('lead'));
+document.getElementById('exportLeadsBtn').addEventListener('click', () => exportCsv('/api/leads/export.csv'));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // VISA / TRAVELERS
@@ -502,7 +624,7 @@ function renderTravelers() {
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <span class="traveler-progress">${done}/${CHECKS.length} steps done</span>
-          <button class="row-delete" title="Remove traveler">✕</button>
+          <button type="button" class="row-delete" data-row-id="${t.id}" title="Remove this traveler only">✕</button>
         </div>
       </div>
       <div class="traveler-body">
@@ -511,33 +633,24 @@ function renderTravelers() {
           <input placeholder="Notes (e.g. passport renewal needed, visa appointment date…)" value="${esc(t.notes||'')}" />
         </div>
         <div class="traveler-actions">
-          <button class="btn-ghost edit-traveler-btn">✏ Edit passport / due dates</button>
+          <button type="button" class="btn-ghost edit-traveler-btn">✏ Edit passport / due dates</button>
         </div>
       </div>
     `;
 
-    // Checkbox toggles
+    const rowId = t.id;
     card.querySelectorAll('input[data-key]').forEach(inp => {
       inp.addEventListener('change', () => {
         const updated = { ...t, [inp.dataset.key]: inp.checked };
-        saveTraveler(t.id, updated);
+        saveTraveler(rowId, updated);
       });
     });
 
-    // Notes
     card.querySelector('.traveler-notes input').addEventListener('change', e => {
-      saveTraveler(t.id, { ...t, notes: e.target.value });
+      saveTraveler(rowId, { ...t, notes: e.target.value });
     });
 
-    // Edit passport/dates
     card.querySelector('.edit-traveler-btn').addEventListener('click', () => openModal('traveler', t));
-
-    // Delete
-    card.querySelector('.row-delete').addEventListener('click', async () => {
-      if (!confirm(`Remove ${t.name} from travelers?`)) return;
-      await api(`/api/travelers/${t.id}?who=${encodeURIComponent(currentUser)}`, { method: 'DELETE' });
-      loadTravelers();
-    });
 
     container.appendChild(card);
   });
@@ -550,15 +663,56 @@ function renderTravelers() {
 }
 
 async function saveTraveler(id, body) {
-  await api(`/api/travelers/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  loadTravelers();
+  const numId = parseRowId(id);
+  if (!numId) return;
+  try {
+    const updated = await api(`/api/travelers/${numId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const idx = travelerData.findIndex(t => parseRowId(t.id) === numId);
+    if (idx >= 0) travelerData[idx] = updated;
+    renderTravelers();
+  } catch (err) {
+    showApiError(err);
+    await loadTravelers();
+  }
 }
 
+async function deleteTraveler(id) {
+  if (deleteLocks.traveler) return;
+  const numId = parseRowId(id);
+  if (!numId) {
+    showApiError(new Error('Could not remove this traveler — refresh and try again.'));
+    return;
+  }
+  const row = travelerData.find(t => parseRowId(t.id) === numId);
+  const label = row ? row.name : `traveler #${numId}`;
+  if (!confirm(`Remove only ${label}? Other travelers will stay.`)) return;
+
+  deleteLocks.traveler = true;
+  try {
+    await api(`/api/travelers/${numId}?who=${encodeURIComponent(currentUser)}`, { method: 'DELETE' });
+    await loadTravelers();
+  } catch (err) {
+    showApiError(err);
+    await loadTravelers();
+  } finally {
+    deleteLocks.traveler = false;
+  }
+}
+
+document.getElementById('travelerList').addEventListener('click', (e) => {
+  const btn = e.target.closest('button.row-delete[data-row-id]');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  deleteTraveler(btn.dataset.rowId);
+});
+
 document.getElementById('addTravelerBtn').addEventListener('click', () => openModal('addTraveler'));
+document.getElementById('exportTravelersBtn').addEventListener('click', () => exportCsv('/api/travelers/export.csv'));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ACTIVITY LOG
@@ -597,6 +751,8 @@ async function loadActivity() {
   });
   container.appendChild(list);
 }
+
+document.getElementById('exportActivityBtn').addEventListener('click', () => exportCsv('/api/activity/export.csv'));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MODAL

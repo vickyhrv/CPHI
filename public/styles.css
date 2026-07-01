@@ -267,8 +267,18 @@ tbody input, tbody select {
 tbody input:hover, tbody select:hover { border-color: var(--line); }
 tbody input:focus, tbody select:focus { border-color: var(--brand); outline: none; background: #fff; }
 .num-input { text-align: right; }
-.row-delete { background: none; border: none; color: #C5BDB3; cursor: pointer; font-size: 15px; padding: 2px 6px; }
-.row-delete:hover { color: var(--warn); }
+.row-delete {
+  background: none;
+  border: none;
+  color: #C5BDB3;
+  cursor: pointer;
+  font-size: 15px;
+  padding: 4px 8px;
+  line-height: 1;
+  position: relative;
+  z-index: 2;
+}
+.row-delete:hover { color: var(--warn); background: var(--warn-soft); border-radius: 6px; }
 .totals-row { font-weight: 700; background: var(--brand-soft); }
 .totals-row td { color: var(--brand); border-bottom: none; font-size: 13px; padding: 10px 12px; }
 

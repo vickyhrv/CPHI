@@ -112,6 +112,7 @@
           <button class="btn-secondary" id="convertBtn">Convert</button>
           <span class="rate-badge" id="rateBadge" style="display:none"></span>
         </div>
+        <button class="btn-secondary" id="exportBudgetBtn">⬇ Export CSV</button>
         <button class="btn-secondary" id="capBtn">⚙ Set cap</button>
         <button class="btn-primary" id="addBudgetBtn">+ Add line</button>
       </div>
@@ -150,6 +151,7 @@
     <div class="panel-head">
       <h2>Tasks</h2>
       <div class="head-actions">
+        <button class="btn-secondary" id="exportTasksBtn">⬇ Export CSV</button>
         <button class="btn-secondary" id="whatsappTasksBtn">💬 WhatsApp update</button>
         <button class="btn-primary" id="addTaskBtn">+ Add task</button>
       </div>
@@ -173,7 +175,10 @@
   <section id="visa" class="panel">
     <div class="panel-head">
       <h2>Visa &amp; Travel Tracker</h2>
-      <button class="btn-primary" id="addTravelerBtn">+ Add traveler</button>
+      <div class="head-actions">
+        <button class="btn-secondary" id="exportTravelersBtn">⬇ Export CSV</button>
+        <button class="btn-primary" id="addTravelerBtn">+ Add traveler</button>
+      </div>
     </div>
     <div id="travelerList"></div>
   </section>
@@ -182,7 +187,10 @@
   <section id="activity" class="panel">
     <div class="panel-head">
       <h2>Activity Log</h2>
-      <span class="log-note">All adds, edits &amp; deletes are recorded here — with who did it.</span>
+      <div class="head-actions">
+        <span class="log-note">All adds, edits &amp; deletes are recorded here — with who did it.</span>
+        <button class="btn-secondary" id="exportActivityBtn">⬇ Export CSV</button>
+      </div>
     </div>
     <div id="activityList"></div>
   </section>

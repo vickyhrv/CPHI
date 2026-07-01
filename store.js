@@ -142,7 +142,12 @@ const store = {
 
   remove(table, id) {
     assertTable(table);
-    db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(Number(id));
+    const numId = Number(id);
+    if (!Number.isInteger(numId) || numId < 1) {
+      throw new Error(`Invalid id for delete: ${id}`);
+    }
+    const result = db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(numId);
+    return result.changes;
   },
 
   seedIfEmpty(table, rows) {
