@@ -1,16 +1,33 @@
 'use strict';
 
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const SESSION_COOKIE = 'cphi_session';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Hardcoded team accounts — change in production via env if needed */
-const USERS = [
-  { username: 'hrvadmin',  password: 'Milan2026!',   displayName: 'HRV Admin' },
-  { username: 'boothlead', password: 'Booth@CPHI26', displayName: 'Booth Lead' },
-  { username: 'planner',   password: 'HRV-Planner!', displayName: 'Event Planner' },
-];
+const USERS_FILE = process.env.CPHI_USERS_FILE
+  || path.join(__dirname, 'data', 'users.json');
+
+function loadUsers() {
+  if (!fs.existsSync(USERS_FILE)) {
+    const msg = `Auth users file not found: ${USERS_FILE}\n`
+      + 'Copy deploy/users.example.json to data/users.json (local) or /etc/cphi-app/users.json (server).';
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(msg);
+    }
+    console.warn(`WARN: ${msg}`);
+    return [];
+  }
+  const raw = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error(`Invalid users file (expected non-empty array): ${USERS_FILE}`);
+  }
+  return raw;
+}
+
+const USERS = loadUsers();
 
 const sessions = new Map();
 
@@ -132,7 +149,7 @@ function authGate(req, res, next) {
 }
 
 module.exports = {
-  USERS,
+  USERS_FILE,
   findUser,
   createSession,
   getSession,

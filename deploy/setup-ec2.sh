@@ -97,6 +97,10 @@ id -u "${APP_USER}" &>/dev/null || useradd --system --home "${APP_DIR}" --shell 
 mkdir -p "${APP_DIR}" "${DATA_DIR}" /etc/cphi-app /var/log/cphi-app
 chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" /var/log/cphi-app
 
+fix_app_permissions() {
+  chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
+}
+
 echo "==> Cloning application..."
 if [[ ! -d "${APP_DIR}/.git" ]]; then
   git clone "${GIT_REPO}" "${APP_DIR}"
@@ -105,20 +109,36 @@ else
   git -C "${APP_DIR}" pull --ff-only origin main || true
 fi
 
+# git clone/pull runs as root — cphi user must own the app dir before npm ci
+fix_app_permissions
+
 echo "==> Installing npm dependencies..."
 cd "${APP_DIR}"
-sudo -u "${APP_USER}" npm ci --omit=dev
+sudo -u "${APP_USER}" env HOME="${APP_DIR}" npm ci --omit=dev
 
 echo "==> Environment file..."
 cat > "${ENV_FILE}" <<EOF
 NODE_ENV=production
 PORT=3000
 DATABASE_PATH=${DATA_DIR}/cphi.db
+CPHI_USERS_FILE=/etc/cphi-app/users.json
 EOF
 chmod 640 "${ENV_FILE}"
 chown root:"${APP_USER}" "${ENV_FILE}"
 
-chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
+USERS_FILE="/etc/cphi-app/users.json"
+if [[ ! -f "${USERS_FILE}" ]]; then
+  if [[ -n "${CPHI_USERS_JSON:-}" ]]; then
+    echo "${CPHI_USERS_JSON}" > "${USERS_FILE}"
+  else
+    cp "${APP_DIR}/deploy/users.example.json" "${USERS_FILE}"
+    echo "    Created ${USERS_FILE} from template — EDIT PASSWORDS before going live!"
+  fi
+  chmod 600 "${USERS_FILE}"
+  chown "${APP_USER}:${APP_USER}" "${USERS_FILE}"
+fi
+
+fix_app_permissions
 
 echo "==> systemd service..."
 cp "${APP_DIR}/deploy/cphi-app.service" /etc/systemd/system/cphi-app.service

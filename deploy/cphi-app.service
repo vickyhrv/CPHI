@@ -10,6 +10,7 @@ User=cphi
 Group=cphi
 WorkingDirectory=/opt/cphi-app
 EnvironmentFile=/etc/cphi-app/env
+# users.json path set in env file (CPHI_USERS_FILE)
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
 RestartSec=5

@@ -1,0 +1,17 @@
+[
+  {
+    "username": "hrvadmin",
+    "password": "CHANGE_THIS_PASSWORD",
+    "displayName": "HRV Admin"
+  },
+  {
+    "username": "boothlead",
+    "password": "CHANGE_THIS_PASSWORD",
+    "displayName": "Booth Lead"
+  },
+  {
+    "username": "planner",
+    "password": "CHANGE_THIS_PASSWORD",
+    "displayName": "Event Planner"
+  }
+]

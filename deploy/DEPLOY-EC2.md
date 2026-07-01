@@ -93,7 +93,36 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot renew --dry-run
 ```
 
+## Login credentials (not in GitHub)
+
+Passwords live in **`/etc/cphi-app/users.json`** on the server only (never committed).
+
+After setup, edit passwords:
+
+```bash
+sudo nano /etc/cphi-app/users.json
+sudo systemctl restart cphi-app
+```
+
+Or pass JSON at setup time:
+
+```bash
+sudo CPHI_USERS_JSON='[{"username":"hrvadmin","password":"YourSecret","displayName":"HRV Admin"}]' bash deploy/setup-ec2.sh
+```
+
+**Important:** This repo was public with old hardcoded passwords in git history — **change all passwords** after deploy.
+
 ## Troubleshooting
+
+**EACCES npm / permission denied** — run:
+
+```bash
+sudo chown -R cphi:cphi /opt/cphi-app
+sudo -u cphi env HOME=/opt/cphi-app bash -c 'cd /opt/cphi-app && npm ci --omit=dev'
+sudo systemctl restart cphi-app
+```
+
+Or: `sudo bash /opt/cphi-app/deploy/fix-permissions.sh`
 
 **502 Bad Gateway** — app not running:
 

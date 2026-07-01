@@ -26,9 +26,12 @@ git -C "${APP_DIR}" fetch origin
 git -C "${APP_DIR}" checkout "${BRANCH}"
 git -C "${APP_DIR}" pull --ff-only origin "${BRANCH}"
 
+# git pull as root leaves root-owned files — fix before npm
+chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
+
 echo "==> npm install..."
 cd "${APP_DIR}"
-sudo -u "${APP_USER}" npm ci --omit=dev
+sudo -u "${APP_USER}" env HOME="${APP_DIR}" npm ci --omit=dev
 
 echo "==> Restarting service..."
 systemctl restart cphi-app

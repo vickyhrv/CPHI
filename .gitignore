@@ -1,5 +1,7 @@
 node_modules/
 data/*.json
+!data/users.example.json
+data/users.json
 data/*.db
 data/*.db-wal
 data/*.db-shm
