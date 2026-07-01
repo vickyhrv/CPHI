@@ -1,0 +1,20 @@
+[Unit]
+Description=HRV CPHI Milan 2026 Planner
+Documentation=https://github.com/vickyhrv/CPHI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cphi
+Group=cphi
+WorkingDirectory=/opt/cphi-app
+EnvironmentFile=/etc/cphi-app/env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+# Hardening (app binds locally; nginx is public)
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

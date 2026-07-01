@@ -108,6 +108,7 @@ function authGate(req, res, next) {
   const { path: pathname } = req;
 
   if (pathname.startsWith('/api/auth')) return next();
+  if (pathname === '/api/health') return next();
   if (isPublicPath(pathname)) return next();
 
   const session = getSession(req);
