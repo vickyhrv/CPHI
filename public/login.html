@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in · HRV CPHI Milan 2026</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/login.css" />
+</head>
+<body>
+  <div class="login-scene">
+    <div class="login-glow login-glow-a"></div>
+    <div class="login-glow login-glow-b"></div>
+    <div class="login-grid"></div>
+
+    <div class="login-shell">
+      <aside class="login-hero">
+        <div class="hero-top">
+          <img src="/hrv-logo.png" alt="HRV Pharma" class="hero-logo" />
+          <span class="hero-badge">Internal · Team only</span>
+        </div>
+
+        <div class="hero-body">
+          <p class="hero-eyebrow">CPHI Worldwide · Milan 2026</p>
+          <h1 class="hero-title">Your booth.<br />Your plan.<br />One command centre.</h1>
+          <p class="hero-copy">
+            Budget, tasks, leads, visas — everything your Milan team needs,
+            secured behind team login.
+          </p>
+        </div>
+
+        <div class="hero-visual">
+          <img src="/hrv-parrots.png" alt="" class="hero-parrots" aria-hidden="true" />
+          <div class="hero-stats">
+            <div class="hero-stat">
+              <span class="hero-stat-num">6–8</span>
+              <span class="hero-stat-label">Oct 2026</span>
+            </div>
+            <div class="hero-stat">
+              <span class="hero-stat-num">Fiera</span>
+              <span class="hero-stat-label">Milano, Rho</span>
+            </div>
+          </div>
+        </div>
+
+        <p class="hero-foot">Three letters. One standard. 🦜</p>
+      </aside>
+
+      <main class="login-panel">
+        <div class="login-card">
+          <div class="login-card-head">
+            <img src="/hrv-logo.png" alt="" class="login-card-logo" aria-hidden="true" />
+            <h2>Welcome back</h2>
+            <p>Sign in with your team credentials to open the planner.</p>
+          </div>
+
+          <form id="loginForm" class="login-form" autocomplete="on">
+            <div class="field">
+              <label for="username">Username</label>
+              <div class="input-wrap">
+                <span class="input-icon" aria-hidden="true">👤</span>
+                <input id="username" name="username" type="text" autocomplete="username" placeholder="e.g. hrvadmin" required />
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="password">Password</label>
+              <div class="input-wrap">
+                <span class="input-icon" aria-hidden="true">🔒</span>
+                <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Your team password" required />
+                <button type="button" class="toggle-pass" id="togglePass" aria-label="Show password">👁</button>
+              </div>
+            </div>
+
+            <p id="loginError" class="login-error" role="alert" hidden></p>
+
+            <button type="submit" class="login-submit" id="loginBtn">
+              <span class="login-submit-text">Enter planner</span>
+              <span class="login-submit-arrow">→</span>
+            </button>
+          </form>
+
+          <p class="login-hint">Milan prep starts here. Keep credentials within the team.</p>
+        </div>
+
+        <p class="login-legal">© HRV Pharma · CPHI Milan 2026 internal tool</p>
+      </main>
+    </div>
+  </div>
+  <script src="/login.js"></script>
+</body>
+</html>

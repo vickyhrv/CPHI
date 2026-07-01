@@ -1,0 +1,840 @@
+'use strict';
+
+// ── API helper (requires running backend — open via http://localhost:3000) ───
+async function api(path, options = {}) {
+  const res = await fetch(path, { credentials: 'same-origin', ...options });
+  if (res.status === 401) {
+    window.location.href = '/login.html';
+    throw new Error('Session expired');
+  }
+  if (!res.ok) {
+    let msg = `Request failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body.error) msg = body.error;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  const ct = res.headers.get('content-type') || '';
+  return ct.includes('application/json') ? res.json() : res;
+}
+
+function showApiError(err) {
+  console.error(err);
+  const banner = document.getElementById('apiErrorBanner');
+  if (banner) {
+    banner.textContent = err.message || 'Could not reach the server. Run npm start and open http://localhost:3000';
+    banner.style.display = 'block';
+  }
+}
+
+// ── Identity (who is using the app) ──────────────────────────────────────────
+let currentUser = localStorage.getItem('cphi_user') || '';
+
+function initIdentity() {
+  const banner = document.getElementById('identityBanner');
+  const chip   = document.getElementById('userChip');
+
+  function setUser(name) {
+    currentUser = name.trim();
+    localStorage.setItem('cphi_user', currentUser);
+    chip.textContent = '👤 ' + currentUser;
+    banner.style.display = 'none';
+  }
+
+  if (!currentUser) {
+    banner.style.display = 'flex';
+  } else {
+    chip.textContent = '👤 ' + currentUser;
+  }
+
+  document.getElementById('identitySave').addEventListener('click', () => {
+    const v = document.getElementById('identityInput').value.trim();
+    if (v) setUser(v);
+  });
+  document.getElementById('identityInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('identitySave').click();
+  });
+  chip.addEventListener('click', () => {
+    banner.style.display = banner.style.display === 'none' ? 'flex' : 'none';
+  });
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'activity') loadActivity();
+  });
+});
+
+// ── Countdown ─────────────────────────────────────────────────────────────────
+(function() {
+  const show = new Date('2026-10-06T09:00:00');
+  const days = Math.max(0, Math.ceil((show - new Date()) / 86400000));
+  document.getElementById('countdownNum').textContent = days;
+})();
+
+// ── Formatting helpers ────────────────────────────────────────────────────────
+let convRate = 1;
+let convSymbol = '$';
+let convCode = 'USD';
+
+function fmt(n) {
+  const v = Number(n || 0) * convRate;
+  return convSymbol + v.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+function esc(str) {
+  return String(str ?? '').replace(/[&<>"']/g, m =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+}
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + (iso.length === 10 ? 'T00:00:00' : ''));
+  return d.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+}
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  return Math.floor(h / 24) + 'd ago';
+}
+
+function isOverdue(dateStr) {
+  if (!dateStr) return false;
+  return new Date(dateStr + 'T23:59:59') < new Date();
+}
+
+// ── Settings & budget cap ─────────────────────────────────────────────────────
+let settings = { budget_cap: 0, currency: 'USD' };
+
+async function loadSettings() {
+  settings = await api('/api/settings');
+}
+
+async function saveSettings(obj) {
+  settings = await api('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(obj)
+  });
+}
+
+function updateCapBar(totalEst) {
+  const bar = document.getElementById('budgetCapBar');
+  if (!settings.budget_cap || settings.budget_cap <= 0) { bar.style.display = 'none'; return; }
+  bar.style.display = 'block';
+  const pct = Math.min((totalEst / settings.budget_cap) * 100, 100);
+  const fill = document.getElementById('capFill');
+  fill.style.width = pct + '%';
+  fill.className = 'cap-fill' + (totalEst > settings.budget_cap ? ' over' : '');
+  document.getElementById('capAmounts').textContent =
+    `${fmt(totalEst)} of ${fmt(settings.budget_cap)} cap · ${pct.toFixed(0)}%`;
+}
+
+document.getElementById('capBtn').addEventListener('click', () => {
+  openModal('cap');
+});
+
+// ── Currency conversion ───────────────────────────────────────────────────────
+const SYMBOLS = { USD:'$', EUR:'€', GBP:'£', INR:'₹', AED:'د.إ', SGD:'S$', CHF:'Fr', JPY:'¥' };
+
+document.getElementById('currencyDate').value = new Date().toISOString().slice(0, 10);
+
+document.getElementById('convertBtn').addEventListener('click', async () => {
+  const to   = document.getElementById('currencySelect').value;
+  const date = document.getElementById('currencyDate').value || new Date().toISOString().slice(0, 10);
+  const badge = document.getElementById('rateBadge');
+
+  if (to === 'USD') {
+    convRate = 1; convSymbol = '$'; convCode = 'USD';
+    badge.style.display = 'none';
+    renderBudget(); return;
+  }
+
+  badge.textContent = 'Loading…';
+  badge.style.display = 'inline';
+
+  try {
+    const r = await fetch(`https://api.frankfurter.app/${date}?from=USD&to=${to}`);
+    const data = await r.json();
+    convRate   = data.rates[to];
+    convSymbol = SYMBOLS[to] || to + ' ';
+    convCode   = to;
+    badge.textContent = `1 USD = ${convRate.toFixed(4)} ${to}`;
+    renderBudget();
+  } catch {
+    badge.textContent = 'Rate fetch failed';
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BUDGET
+// ═══════════════════════════════════════════════════════════════════════════════
+let budgetData = [];
+
+async function loadBudget() {
+  budgetData = await api('/api/budget');
+  renderBudget();
+}
+
+function renderBudget() {
+  const body = document.getElementById('budgetBody');
+  body.innerHTML = '';
+  let totLast = 0, totEst = 0, totActual = 0;
+
+  budgetData.forEach(row => {
+    totLast   += Number(row.last_year)    || 0;
+    totEst    += Number(row.this_year_est)|| 0;
+    totActual += Number(row.actual)       || 0;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input value="${esc(row.category)}" data-field="category" style="width:90px"/></td>
+      <td><input value="${esc(row.item)}" data-field="item" /></td>
+      <td>
+        <div class="vendor-detail">
+          <button class="vendor-expand-btn" data-id="${row.id}">
+            ${row.vendor ? esc(row.vendor) : '+ vendor / POC'}
+          </button>
+          <div class="vendor-fields" id="vf_${row.id}">
+            <input placeholder="Vendor name" value="${esc(row.vendor||'')}" data-field="vendor" />
+            <input placeholder="POC name" value="${esc(row.poc_name||'')}" data-field="poc_name" />
+            <input placeholder="POC email" value="${esc(row.poc_email||'')}" data-field="poc_email" />
+            <input placeholder="POC phone" value="${esc(row.poc_phone||'')}" data-field="poc_phone" />
+            <input placeholder="Merchandise / item notes" value="${esc(row.merchandise_notes||'')}" data-field="merchandise_notes" />
+          </div>
+        </div>
+      </td>
+      <td><input class="num-input" type="number" value="${row.last_year||0}" data-field="last_year" style="width:80px"/></td>
+      <td><input class="num-input" type="number" value="${row.this_year_est||0}" data-field="this_year_est" style="width:80px"/></td>
+      <td><input class="num-input" type="number" value="${row.actual||0}" data-field="actual" style="width:80px"/></td>
+      <td><input value="${esc(row.notes||'')}" data-field="notes" /></td>
+      <td><button class="row-delete" title="Delete">✕</button></td>
+    `;
+
+    // Vendor expand toggle
+    tr.querySelector('.vendor-expand-btn').addEventListener('click', () => {
+      const vf = document.getElementById(`vf_${row.id}`);
+      vf.classList.toggle('open');
+    });
+
+    // Save any input on change
+    tr.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('change', () => saveBudgetRow(row.id, inp.dataset.field, inp.value));
+    });
+
+    tr.querySelector('.row-delete').addEventListener('click', () => deleteBudgetRow(row.id));
+    body.appendChild(tr);
+  });
+
+  document.getElementById('totalLastYear').textContent = fmt(totLast);
+  document.getElementById('totalEst').textContent      = fmt(totEst);
+  document.getElementById('totalActual').textContent   = fmt(totActual);
+  document.getElementById('statBudgetEst').textContent    = fmt(totEst);
+  document.getElementById('statBudgetActual').textContent = fmt(totActual) + ' actual so far';
+  updateCapBar(totEst);
+}
+
+async function saveBudgetRow(id, field, value) {
+  const row = budgetData.find(r => r.id === id);
+  if (!row) return;
+  row[field] = value;
+  await api(`/api/budget/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(row)
+  });
+  renderBudget();
+}
+
+async function deleteBudgetRow(id) {
+  if (!confirm('Delete this budget line?')) return;
+  await api(`/api/budget/${id}?who=${encodeURIComponent(currentUser)}`, { method: 'DELETE' });
+  loadBudget();
+}
+
+document.getElementById('addBudgetBtn').addEventListener('click', async () => {
+  await api('/api/budget', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ category: 'Other', item: 'New item', last_year: 0, this_year_est: 0, actual: 0, notes: '', who: currentUser })
+  });
+  loadBudget();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TASKS
+// ═══════════════════════════════════════════════════════════════════════════════
+let taskData = [];
+
+async function loadTasks() {
+  taskData = await api('/api/tasks');
+  renderTasks();
+}
+
+function renderTasks() {
+  const container = document.getElementById('taskPhases');
+  container.innerHTML = '';
+  const phases = [...new Set(taskData.map(t => t.phase))];
+  let doneCount = 0;
+
+  phases.forEach(phase => {
+    const items = taskData.filter(t => t.phase === phase);
+    const phaseDone = items.filter(t => t.done).length;
+    doneCount += phaseDone;
+
+    const group = document.createElement('div');
+    group.className = 'phase-group';
+
+    group.innerHTML = `
+      <div class="phase-header">
+        <span>${esc(phase)}</span>
+        <span>${phaseDone}/${items.length} done</span>
+      </div>
+      <div class="task-col-headers">
+        <span></span><span>Task</span><span>Owner</span><span>Due date</span><span>Actions</span><span></span>
+      </div>
+    `;
+
+    items.forEach(t => {
+      const row = document.createElement('div');
+      row.className = 'task-row' + (t.done ? ' task-done' : '');
+      const overdue = !t.done && isOverdue(t.due_date);
+
+      row.innerHTML = `
+        <input type="checkbox" ${t.done ? 'checked' : ''} title="Mark complete" />
+        <input class="task-text-input" value="${esc(t.task)}" />
+        <input class="owner-input" placeholder="Owner" value="${esc(t.owner||'')}" />
+        <input class="due-input ${overdue ? 'overdue' : ''}" type="date" value="${esc(t.due_date||'')}" title="${overdue ? 'Overdue!' : 'Due date'}" />
+        <div class="task-actions">
+          ${t.owner && t.owner.includes('@')
+            ? `<button class="email-btn" title="Send follow-up email to ${esc(t.owner)}">📧</button>`
+            : `<button class="email-btn" title="WhatsApp follow-up">💬</button>`
+          }
+        </div>
+        <button class="row-delete" title="Delete">✕</button>
+      `;
+
+      row.querySelector('input[type=checkbox]').addEventListener('change', e => {
+        updateTask(t.id, { ...t, done: e.target.checked ? 1 : 0, who: currentUser });
+      });
+      row.querySelector('.task-text-input').addEventListener('change', e => {
+        updateTask(t.id, { ...t, task: e.target.value });
+      });
+      row.querySelector('.owner-input').addEventListener('change', e => {
+        updateTask(t.id, { ...t, owner: e.target.value });
+      });
+      row.querySelector('.due-input').addEventListener('change', e => {
+        updateTask(t.id, { ...t, due_date: e.target.value });
+      });
+      row.querySelector('.row-delete').addEventListener('click', () => deleteTask(t.id, t.task));
+
+      // Follow-up button
+      row.querySelector('.email-btn').addEventListener('click', () => {
+        const owner = t.owner || '';
+        if (owner.includes('@')) {
+          openEmailFollowUp(t);
+        } else {
+          openWhatsAppFollowUp(t);
+        }
+      });
+
+      group.appendChild(row);
+    });
+    container.appendChild(group);
+  });
+
+  document.getElementById('statTasks').textContent = `${doneCount}/${taskData.length}`;
+}
+
+async function updateTask(id, body) {
+  await api(`/api/tasks/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...body, who: currentUser })
+  });
+  loadTasks();
+}
+
+async function deleteTask(id, name) {
+  if (!confirm(`Delete task "${name}"?`)) return;
+  await api(`/api/tasks/${id}?who=${encodeURIComponent(currentUser)}`, { method: 'DELETE' });
+  loadTasks();
+}
+
+document.getElementById('addTaskBtn').addEventListener('click', () => openModal('task'));
+
+// WhatsApp tasks summary
+document.getElementById('whatsappTasksBtn').addEventListener('click', () => {
+  const pending = taskData.filter(t => !t.done);
+  const overdue = pending.filter(t => isOverdue(t.due_date));
+  let msg = `🦜 *HRV CPHI Milan 2026 — Task Update*\n\n`;
+  msg += `✅ Done: ${taskData.filter(t=>t.done).length}/${taskData.length}\n`;
+  msg += `⏳ Pending: ${pending.length}\n`;
+  if (overdue.length) msg += `🚨 Overdue: ${overdue.length}\n`;
+  msg += `\n*Pending tasks:*\n`;
+  pending.slice(0, 10).forEach(t => {
+    msg += `• ${t.task}${t.owner ? ' (' + t.owner + ')' : ''}${t.due_date ? ' · due ' + fmtDate(t.due_date) : ''}\n`;
+  });
+  openModal('whatsapp', { message: msg });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEADS
+// ═══════════════════════════════════════════════════════════════════════════════
+async function loadLeads() {
+  const leads = await api('/api/leads');
+  renderLeads(leads);
+  document.getElementById('statLeads').textContent = leads.length;
+}
+
+function renderLeads(leads) {
+  const list = document.getElementById('leadList');
+  if (!leads.length) {
+    list.innerHTML = '<div class="empty-state">🤝 No leads yet. Tap "+ New lead" at the booth!</div>';
+    return;
+  }
+  list.innerHTML = '';
+  leads.forEach(l => {
+    const card = document.createElement('div');
+    card.className = 'lead-card';
+    card.innerHTML = `
+      <button class="row-delete" title="Delete">✕</button>
+      <span class="priority-badge priority-${esc(l.priority)}">${esc(l.priority)}</span>
+      <div class="lead-name">${esc(l.name)}</div>
+      <div class="lead-company">${esc(l.role)}${l.role && l.company ? ' · ' : ''}${esc(l.company)}</div>
+      ${l.email    ? `<div class="lead-field"><span>Email:</span> ${esc(l.email)}</div>` : ''}
+      ${l.phone    ? `<div class="lead-field"><span>Phone:</span> ${esc(l.phone)}</div>` : ''}
+      ${l.country  ? `<div class="lead-field"><span>Country:</span> ${esc(l.country)}</div>` : ''}
+      ${l.interest ? `<div class="lead-field"><span>Interest:</span> ${esc(l.interest)}</div>` : ''}
+      ${l.notes    ? `<div class="lead-field"><span>Notes:</span> ${esc(l.notes)}</div>` : ''}
+      ${l.follow_up_date ? `<div class="lead-followup">📅 Follow up: ${fmtDate(l.follow_up_date)}</div>` : ''}
+      <div class="lead-field" style="margin-top:6px"><span>By:</span> ${esc(l.captured_by||'—')} · <span>${timeAgo(l.created_at)}</span></div>
+      ${l.email ? `<button class="btn-ghost" style="margin-top:8px;padding:4px 0" data-email="${esc(l.email)}" data-name="${esc(l.name)}">📧 Follow-up email</button>` : ''}
+    `;
+    card.querySelector('.row-delete').addEventListener('click', async () => {
+      if (!confirm(`Delete lead for ${l.name}?`)) return;
+      await api(`/api/leads/${l.id}?who=${encodeURIComponent(currentUser)}`, { method: 'DELETE' });
+      loadLeads();
+    });
+    const emailBtn = card.querySelector('[data-email]');
+    if (emailBtn) {
+      emailBtn.addEventListener('click', () => {
+        const subject = encodeURIComponent(`Following up from CPHI Milan 2026 — HRV Pharma`);
+        const body = encodeURIComponent(
+          `Dear ${l.name},\n\nIt was great meeting you at our booth at CPHI Worldwide Milan 2026.\n\n` +
+          `${l.interest ? `We discussed your interest in ${l.interest}. ` : ''}` +
+          `I'd love to continue the conversation and explore how HRV Pharma can support your requirements.\n\n` +
+          `Please feel free to reach out at your convenience.\n\nBest regards,\n${currentUser || 'HRV Pharma Team'}`
+        );
+        window.open(`mailto:${l.email}?subject=${subject}&body=${body}`);
+      });
+    }
+    list.appendChild(card);
+  });
+}
+
+document.getElementById('newLeadBtn').addEventListener('click', () => openModal('lead'));
+document.getElementById('exportLeadsBtn').addEventListener('click', () => {
+  window.location.href = '/api/leads/export.csv';
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VISA / TRAVELERS
+// ═══════════════════════════════════════════════════════════════════════════════
+let travelerData = [];
+
+const CHECKS = [
+  { key: 'visa_applied',   label: 'Schengen visa applied',    dueKey: 'visa_apply_due' },
+  { key: 'visa_received',  label: 'Schengen visa received',   dueKey: '' },
+  { key: 'flight_booked',  label: 'Flight booked',             dueKey: 'flight_due' },
+  { key: 'hotel_booked',   label: 'Hotel booked',              dueKey: 'hotel_due' },
+  { key: 'insurance',      label: 'Travel insurance sorted',   dueKey: '' },
+  { key: 'forex',          label: 'Currency / forex ready',    dueKey: '' },
+];
+
+async function loadTravelers() {
+  travelerData = await api('/api/travelers');
+  renderTravelers();
+}
+
+function renderTravelers() {
+  const container = document.getElementById('travelerList');
+  container.innerHTML = '';
+
+  let readyCount = 0;
+  travelerData.forEach(t => {
+    const done = CHECKS.filter(c => t[c.key]).length;
+    if (done === CHECKS.length) readyCount++;
+
+    const card = document.createElement('div');
+    card.className = 'traveler-card';
+
+    const checksHtml = CHECKS.map(c => `
+      <div class="check-item ${t[c.key] ? 'done-item' : ''}">
+        <input type="checkbox" id="chk_${t.id}_${c.key}" ${t[c.key] ? 'checked' : ''} data-key="${c.key}" />
+        <label for="chk_${t.id}_${c.key}">
+          ${c.label}
+          ${c.dueKey ? `<span class="check-due">${t[c.dueKey] ? 'Due: ' + fmtDate(t[c.dueKey]) : ''}</span>` : ''}
+        </label>
+      </div>
+    `).join('');
+
+    card.innerHTML = `
+      <div class="traveler-header">
+        <div>
+          <div class="traveler-name">${esc(t.name)}</div>
+          <div class="traveler-passport">
+            ${t.passport ? 'Passport: ' + esc(t.passport) : ''}
+            ${t.passport_expiry ? ' · Expires: ' + fmtDate(t.passport_expiry) : ''}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="traveler-progress">${done}/${CHECKS.length} steps done</span>
+          <button class="row-delete" title="Remove traveler">✕</button>
+        </div>
+      </div>
+      <div class="traveler-body">
+        <div class="checklist-grid">${checksHtml}</div>
+        <div class="traveler-notes">
+          <input placeholder="Notes (e.g. passport renewal needed, visa appointment date…)" value="${esc(t.notes||'')}" />
+        </div>
+        <div class="traveler-actions">
+          <button class="btn-ghost edit-traveler-btn">✏ Edit passport / due dates</button>
+        </div>
+      </div>
+    `;
+
+    // Checkbox toggles
+    card.querySelectorAll('input[data-key]').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const updated = { ...t, [inp.dataset.key]: inp.checked };
+        saveTraveler(t.id, updated);
+      });
+    });
+
+    // Notes
+    card.querySelector('.traveler-notes input').addEventListener('change', e => {
+      saveTraveler(t.id, { ...t, notes: e.target.value });
+    });
+
+    // Edit passport/dates
+    card.querySelector('.edit-traveler-btn').addEventListener('click', () => openModal('traveler', t));
+
+    // Delete
+    card.querySelector('.row-delete').addEventListener('click', async () => {
+      if (!confirm(`Remove ${t.name} from travelers?`)) return;
+      await api(`/api/travelers/${t.id}?who=${encodeURIComponent(currentUser)}`, { method: 'DELETE' });
+      loadTravelers();
+    });
+
+    container.appendChild(card);
+  });
+
+  if (!travelerData.length) {
+    container.innerHTML = '<div class="empty-state">🛂 No travelers added yet. Click "+ Add traveler" to start tracking visas.</div>';
+  }
+
+  document.getElementById('statVisas').textContent = `${readyCount}/${travelerData.length}`;
+}
+
+async function saveTraveler(id, body) {
+  await api(`/api/travelers/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  loadTravelers();
+}
+
+document.getElementById('addTravelerBtn').addEventListener('click', () => openModal('addTraveler'));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ACTIVITY LOG
+// ═══════════════════════════════════════════════════════════════════════════════
+const ACTION_ICONS = {
+  'Added task': '✅', 'Deleted task': '🗑️', 'Completed task': '🎉',
+  'Added budget item': '💰', 'Deleted budget item': '🗑️',
+  'Captured lead': '🤝', 'Deleted lead': '🗑️',
+  'Added traveler': '🛂', 'Removed traveler': '🗑️',
+};
+
+async function loadActivity() {
+  const logs = await api('/api/activity');
+  const container = document.getElementById('activityList');
+  if (!logs.length) {
+    container.innerHTML = '<div class="empty-state">No activity recorded yet — changes you make will appear here.</div>';
+    return;
+  }
+  container.innerHTML = '';
+  const list = document.createElement('div');
+  list.className = 'activity-list';
+  logs.forEach(l => {
+    const item = document.createElement('div');
+    item.className = 'activity-item';
+    const icon = ACTION_ICONS[l.action] || '📝';
+    item.innerHTML = `
+      <span class="act-icon">${icon}</span>
+      <div class="act-body">
+        <span class="act-who">${esc(l.who || 'Someone')}</span>
+        <span class="act-action"> ${esc(l.action).toLowerCase()}: </span>
+        <span class="act-detail">${esc(l.detail)}</span>
+      </div>
+      <span class="act-ts">${timeAgo(l.ts)}</span>
+    `;
+    list.appendChild(item);
+  });
+  container.appendChild(list);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MODAL
+// ═══════════════════════════════════════════════════════════════════════════════
+const backdrop = document.getElementById('modalBackdrop');
+const modal    = document.getElementById('modal');
+
+function closeModal() { backdrop.classList.remove('open'); }
+backdrop.addEventListener('click', e => { if (e.target === backdrop) closeModal(); });
+
+function openEmailFollowUp(task) {
+  const subject = encodeURIComponent(`Action needed: "${task.task}" — CPHI Milan 2026`);
+  const due = task.due_date ? ` This is due on ${fmtDate(task.due_date)}.` : '';
+  const body = encodeURIComponent(
+    `Hi ${task.owner},\n\nJust following up on the task assigned to you for our CPHI Milan 2026 preparation:\n\n` +
+    `📌 ${task.task}${due}\n\nCould you please update the status at your earliest convenience?\n\n` +
+    `Thanks,\n${currentUser || 'HRV Pharma Team'}`
+  );
+  window.open(`mailto:${task.owner}?subject=${subject}&body=${body}`);
+}
+
+function openWhatsAppFollowUp(task) {
+  const due = task.due_date ? ` (due ${fmtDate(task.due_date)})` : '';
+  const msg = `Hi${task.owner ? ' ' + task.owner : ''}! 👋 Following up on: *${task.task}*${due} — could you share a quick status update? Thanks! — HRV CPHI Team 🦜`;
+  openModal('whatsapp', { message: msg });
+}
+
+function openModal(type, data) {
+  modal.innerHTML = '';
+
+  if (type === 'lead') {
+    modal.innerHTML = `
+      <h3>New lead</h3>
+      <div class="field-row">
+        <div class="field-group"><label>Name *</label><input id="f_name" /></div>
+        <div class="field-group"><label>Company</label><input id="f_company" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field-group"><label>Role / Title</label><input id="f_role" /></div>
+        <div class="field-group"><label>Country</label><input id="f_country" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field-group"><label>Email</label><input id="f_email" type="email" /></div>
+        <div class="field-group"><label>Phone / WhatsApp</label><input id="f_phone" /></div>
+      </div>
+      <div class="field-group"><label>Interest / Products</label><input id="f_interest" /></div>
+      <div class="field-row">
+        <div class="field-group"><label>Priority</label>
+          <select id="f_priority"><option>High</option><option selected>Medium</option><option>Low</option></select>
+        </div>
+        <div class="field-group"><label>Follow-up date</label><input id="f_followup" type="date" /></div>
+      </div>
+      <div class="field-group"><label>Notes</label><textarea id="f_notes"></textarea></div>
+      <div class="field-group"><label>Captured by</label><input id="f_captured_by" value="${esc(currentUser)}" placeholder="Your name" /></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelBtn">Cancel</button>
+        <button class="btn-primary" id="saveBtn">Save lead</button>
+      </div>
+    `;
+    modal.querySelector('#saveBtn').addEventListener('click', async () => {
+      const name = modal.querySelector('#f_name').value.trim();
+      if (!name) { alert('Name is required'); return; }
+      await api('/api/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          company: modal.querySelector('#f_company').value,
+          role: modal.querySelector('#f_role').value,
+          email: modal.querySelector('#f_email').value,
+          phone: modal.querySelector('#f_phone').value,
+          country: modal.querySelector('#f_country').value,
+          interest: modal.querySelector('#f_interest').value,
+          priority: modal.querySelector('#f_priority').value,
+          notes: modal.querySelector('#f_notes').value,
+          follow_up_date: modal.querySelector('#f_followup').value,
+          captured_by: modal.querySelector('#f_captured_by').value,
+        })
+      });
+      closeModal(); loadLeads();
+    });
+
+  } else if (type === 'task') {
+    modal.innerHTML = `
+      <h3>Add task</h3>
+      <div class="field-group"><label>Phase / Group</label><input id="f_phase" placeholder="e.g. Booth & Venue" /></div>
+      <div class="field-group"><label>Task *</label><input id="f_task" /></div>
+      <div class="field-row">
+        <div class="field-group"><label>Owner (name or email)</label><input id="f_owner" /></div>
+        <div class="field-group"><label>Due date</label><input id="f_due" type="date" /></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelBtn">Cancel</button>
+        <button class="btn-primary" id="saveBtn">Add task</button>
+      </div>
+    `;
+    modal.querySelector('#saveBtn').addEventListener('click', async () => {
+      const phase = modal.querySelector('#f_phase').value.trim() || 'Other';
+      const task  = modal.querySelector('#f_task').value.trim();
+      if (!task) { alert('Task is required'); return; }
+      await api('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phase, task, owner: modal.querySelector('#f_owner').value, due_date: modal.querySelector('#f_due').value, who: currentUser })
+      });
+      closeModal(); loadTasks();
+    });
+
+  } else if (type === 'cap') {
+    modal.innerHTML = `
+      <h3>⚙ Budget settings</h3>
+      <div class="field-group"><label>Overall budget cap (USD)</label><input id="f_cap" type="number" value="${settings.budget_cap || 0}" /></div>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Set to 0 to hide the cap progress bar.</p>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelBtn">Cancel</button>
+        <button class="btn-primary" id="saveBtn">Save</button>
+      </div>
+    `;
+    modal.querySelector('#saveBtn').addEventListener('click', async () => {
+      await saveSettings({ budget_cap: Number(modal.querySelector('#f_cap').value), currency: settings.currency });
+      closeModal(); renderBudget();
+    });
+
+  } else if (type === 'addTraveler') {
+    modal.innerHTML = `
+      <h3>Add traveler</h3>
+      <div class="field-group"><label>Full name *</label><input id="f_name" /></div>
+      <div class="field-row">
+        <div class="field-group"><label>Passport number</label><input id="f_passport" /></div>
+        <div class="field-group"><label>Passport expiry</label><input id="f_expiry" type="date" /></div>
+      </div>
+      <div class="field-group"><label>Notes</label><input id="f_notes" placeholder="e.g. needs Schengen visa, appointment booked" /></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelBtn">Cancel</button>
+        <button class="btn-primary" id="saveBtn">Add traveler</button>
+      </div>
+    `;
+    modal.querySelector('#saveBtn').addEventListener('click', async () => {
+      const name = modal.querySelector('#f_name').value.trim();
+      if (!name) { alert('Name is required'); return; }
+      await api('/api/travelers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, passport: modal.querySelector('#f_passport').value, passport_expiry: modal.querySelector('#f_expiry').value, notes: modal.querySelector('#f_notes').value, who: currentUser })
+      });
+      closeModal(); loadTravelers();
+    });
+
+  } else if (type === 'traveler') {
+    const t = data;
+    modal.innerHTML = `
+      <h3>Edit: ${esc(t.name)}</h3>
+      <div class="field-group"><label>Full name</label><input id="f_name" value="${esc(t.name)}" /></div>
+      <div class="field-row">
+        <div class="field-group"><label>Passport number</label><input id="f_passport" value="${esc(t.passport||'')}" /></div>
+        <div class="field-group"><label>Passport expiry</label><input id="f_expiry" type="date" value="${esc(t.passport_expiry||'')}" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field-group"><label>Visa apply by</label><input id="f_visa_due" type="date" value="${esc(t.visa_apply_due||'')}" /></div>
+        <div class="field-group"><label>Flight book by</label><input id="f_flight_due" type="date" value="${esc(t.flight_due||'')}" /></div>
+      </div>
+      <div class="field-group"><label>Hotel book by</label><input id="f_hotel_due" type="date" value="${esc(t.hotel_due||'')}" /></div>
+      <div class="field-group"><label>Notes</label><input id="f_notes" value="${esc(t.notes||'')}" /></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelBtn">Cancel</button>
+        <button class="btn-primary" id="saveBtn">Save</button>
+      </div>
+    `;
+    modal.querySelector('#saveBtn').addEventListener('click', async () => {
+      await saveTraveler(t.id, {
+        ...t,
+        name: modal.querySelector('#f_name').value,
+        passport: modal.querySelector('#f_passport').value,
+        passport_expiry: modal.querySelector('#f_expiry').value,
+        visa_apply_due: modal.querySelector('#f_visa_due').value,
+        flight_due: modal.querySelector('#f_flight_due').value,
+        hotel_due: modal.querySelector('#f_hotel_due').value,
+        notes: modal.querySelector('#f_notes').value,
+      });
+      closeModal();
+    });
+
+  } else if (type === 'whatsapp') {
+    const msg = (data && data.message) || '';
+    modal.innerHTML = `
+      <h3>💬 WhatsApp message</h3>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 10px">Edit the message below, then send to an individual or copy to paste into your group.</p>
+      <div class="whatsapp-box">
+        <textarea id="waMsg">${esc(msg)}</textarea>
+        <div class="wa-actions">
+          <input id="waPhone" placeholder="+91 9876543210 (individual)" style="border:1px solid #A8D5B5;border-radius:6px;padding:7px 10px;font-family:inherit;font-size:13px;flex:1;min-width:180px" />
+          <button class="wa-send" id="waSendBtn">Send to number</button>
+          <button class="wa-copy" id="waCopyBtn">📋 Copy for group</button>
+        </div>
+      </div>
+      <div class="modal-actions" style="margin-top:16px">
+        <button class="btn-secondary" id="cancelBtn">Close</button>
+      </div>
+    `;
+    modal.querySelector('#waSendBtn').addEventListener('click', () => {
+      const phone = modal.querySelector('#waPhone').value.replace(/\D/g, '');
+      const text  = modal.querySelector('#waMsg').value;
+      if (!phone) { alert('Enter a phone number'); return; }
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank');
+    });
+    modal.querySelector('#waCopyBtn').addEventListener('click', () => {
+      const text = modal.querySelector('#waMsg').value;
+      navigator.clipboard.writeText(text).then(() => {
+        modal.querySelector('#waCopyBtn').textContent = '✅ Copied!';
+        setTimeout(() => modal.querySelector('#waCopyBtn').textContent = '📋 Copy for group', 2000);
+      });
+    });
+  }
+
+  modal.querySelector('#cancelBtn').addEventListener('click', closeModal);
+  backdrop.classList.add('open');
+  modal.querySelector('input,textarea')?.focus();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════════════
+initIdentity();
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  window.location.href = '/login.html';
+});
+
+async function bootstrapApp() {
+  const me = await api('/api/auth/me');
+  if (me.authenticated && me.displayName && !localStorage.getItem('cphi_user')) {
+    localStorage.setItem('cphi_user', me.displayName);
+    const chip = document.getElementById('userChip');
+    if (chip) chip.textContent = '👤 ' + me.displayName;
+  }
+  await loadSettings();
+  await Promise.all([loadBudget(), loadTasks(), loadLeads(), loadTravelers()]);
+}
+
+bootstrapApp().catch(showApiError);

@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>HRV · CPHI Milan 2026</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<div id="apiErrorBanner" class="api-error-banner" style="display:none" role="alert"></div>
+
+<!-- Identity banner -->
+<div id="identityBanner" class="identity-banner" style="display:none">
+  <span>👋 Who are you? Actions will be logged under your name.</span>
+  <input id="identityInput" placeholder="Your name…" />
+  <button id="identitySave">Let's go</button>
+</div>
+
+<header class="topbar">
+  <div class="brand">
+    <img src="/hrv-logo.png" alt="HRV Pharma" class="brand-mark" />
+    <div class="brand-text">
+      <span class="brand-title">CPHI Milan 2026</span>
+      <span class="brand-sub">6–8 Oct · Fiera Milano, Rho</span>
+    </div>
+  </div>
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="overview">🏠 Overview</button>
+    <button class="tab-btn" data-tab="budget">💰 Budget</button>
+    <button class="tab-btn" data-tab="tasks">✅ Tasks</button>
+    <button class="tab-btn" data-tab="leads">📋 Leads</button>
+    <button class="tab-btn" data-tab="visa">🛂 Visas</button>
+    <button class="tab-btn" data-tab="activity">📜 Log</button>
+  </nav>
+  <div class="topbar-actions">
+    <div class="user-chip" id="userChip" title="Click to change name"></div>
+    <button class="logout-btn" id="logoutBtn" type="button" title="Sign out">Sign out</button>
+  </div>
+</header>
+
+<main id="app">
+
+  <!-- ── OVERVIEW ─────────────────────────────────────────────────────────── -->
+  <section id="overview" class="panel active">
+
+    <div class="parrots-banner">
+      <img src="/hrv-parrots.png" alt="HRV Mascots" class="parrots-img" />
+      <div class="parrots-text">
+        <h1 class="parrots-title">Milan, we're coming! ✈️</h1>
+        <p class="parrots-desc">Three letters. One standard. The world's biggest pharma show. Let's make it count.</p>
+      </div>
+    </div>
+
+    <div class="countdown-block">
+      <div class="countdown-num" id="countdownNum">--</div>
+      <div class="countdown-label">days to show</div>
+    </div>
+
+    <div class="budget-cap-bar" id="budgetCapBar" style="display:none">
+      <div class="cap-header">
+        <span class="cap-label">Budget cap progress</span>
+        <span class="cap-amounts" id="capAmounts"></span>
+      </div>
+      <div class="cap-track"><div class="cap-fill" id="capFill"></div></div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <span class="stat-label">Budget tracked</span>
+        <span class="stat-value" id="statBudgetEst">$0</span>
+        <span class="stat-sub" id="statBudgetActual">$0 actual so far</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Tasks complete</span>
+        <span class="stat-value" id="statTasks">0/0</span>
+        <span class="stat-sub">across all phases</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Leads captured</span>
+        <span class="stat-value" id="statLeads">0</span>
+        <span class="stat-sub">since show open</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Travelers ready</span>
+        <span class="stat-value" id="statVisas">0/0</span>
+        <span class="stat-sub">visa + travel done</span>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ── BUDGET ─────────────────────────────────────────────────────────────── -->
+  <section id="budget" class="panel">
+    <div class="panel-head">
+      <h2>Budget</h2>
+      <div class="head-actions">
+        <div class="currency-controls">
+          <label class="ctrl-label">Convert to</label>
+          <select id="currencySelect">
+            <option value="USD">USD $</option>
+            <option value="EUR">EUR €</option>
+            <option value="GBP">GBP £</option>
+            <option value="INR">INR ₹</option>
+            <option value="AED">AED د.إ</option>
+            <option value="SGD">SGD S$</option>
+            <option value="CHF">CHF Fr</option>
+            <option value="JPY">JPY ¥</option>
+          </select>
+          <label class="ctrl-label">as of</label>
+          <input type="date" id="currencyDate" />
+          <button class="btn-secondary" id="convertBtn">Convert</button>
+          <span class="rate-badge" id="rateBadge" style="display:none"></span>
+        </div>
+        <button class="btn-secondary" id="capBtn">⚙ Set cap</button>
+        <button class="btn-primary" id="addBudgetBtn">+ Add line</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="budgetTable">
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th>Item</th>
+            <th>Vendor / POC</th>
+            <th>Last year</th>
+            <th>This year est.</th>
+            <th>Actual</th>
+            <th>Notes</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="budgetBody"></tbody>
+        <tfoot>
+          <tr class="totals-row">
+            <td colspan="3">Total</td>
+            <td id="totalLastYear">$0</td>
+            <td id="totalEst">$0</td>
+            <td id="totalActual">$0</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── TASKS ──────────────────────────────────────────────────────────────── -->
+  <section id="tasks" class="panel">
+    <div class="panel-head">
+      <h2>Tasks</h2>
+      <div class="head-actions">
+        <button class="btn-secondary" id="whatsappTasksBtn">💬 WhatsApp update</button>
+        <button class="btn-primary" id="addTaskBtn">+ Add task</button>
+      </div>
+    </div>
+    <div id="taskPhases"></div>
+  </section>
+
+  <!-- ── LEADS ──────────────────────────────────────────────────────────────── -->
+  <section id="leads" class="panel">
+    <div class="panel-head">
+      <h2>Lead Capture</h2>
+      <div class="head-actions">
+        <button class="btn-secondary" id="exportLeadsBtn">⬇ Export CSV</button>
+        <button class="btn-primary" id="newLeadBtn">+ New lead</button>
+      </div>
+    </div>
+    <div class="lead-list" id="leadList"></div>
+  </section>
+
+  <!-- ── VISA ───────────────────────────────────────────────────────────────── -->
+  <section id="visa" class="panel">
+    <div class="panel-head">
+      <h2>Visa &amp; Travel Tracker</h2>
+      <button class="btn-primary" id="addTravelerBtn">+ Add traveler</button>
+    </div>
+    <div id="travelerList"></div>
+  </section>
+
+  <!-- ── ACTIVITY LOG ───────────────────────────────────────────────────────── -->
+  <section id="activity" class="panel">
+    <div class="panel-head">
+      <h2>Activity Log</h2>
+      <span class="log-note">All adds, edits &amp; deletes are recorded here — with who did it.</span>
+    </div>
+    <div id="activityList"></div>
+  </section>
+
+</main>
+
+<!-- ── MODAL ─────────────────────────────────────────────────────────────────── -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
