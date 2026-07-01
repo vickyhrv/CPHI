@@ -21,6 +21,7 @@
   --radius-lg:    14px;
   --shadow-sm:    0 1px 3px rgba(26,31,46,0.07);
   --shadow-md:    0 4px 16px rgba(26,31,46,0.09);
+  --layout-max:   1120px;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -98,6 +99,9 @@ body {
   gap: 12px;
   padding: 10px 24px;
   flex-wrap: nowrap;
+  max-width: var(--layout-max);
+  margin: 0 auto;
+  width: 100%;
 }
 
 .brand { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
@@ -156,10 +160,13 @@ body {
 .tabs-strip {
   display: flex;
   gap: 2px;
-  padding: 0 16px 10px;
+  padding: 0 24px 10px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  max-width: var(--layout-max);
+  margin: 0 auto;
+  width: 100%;
 }
 .tabs-strip::-webkit-scrollbar { display: none; }
 
@@ -194,12 +201,13 @@ body {
    MAIN LAYOUT
 ───────────────────────────────────────────── */
 main {
-  max-width: 1120px;
+  max-width: var(--layout-max);
+  width: 100%;
   margin: 0 auto;
-  padding: 24px 20px 80px;
+  padding: 24px 24px 80px;
 }
 
-.panel { display: none; }
+.panel { display: none; width: 100%; }
 .panel.active {
   display: block;
   animation: fadeUp 0.2s ease both;
@@ -363,6 +371,7 @@ main {
   margin-bottom: 18px;
   gap: 12px;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .panel-head h2 {
@@ -609,7 +618,7 @@ tbody select:focus {
 
 .task-col-headers {
   display: grid;
-  grid-template-columns: 22px 1fr 130px 140px 110px 32px;
+  grid-template-columns: 22px minmax(140px, 1.4fr) 120px 130px minmax(100px, 1fr) 72px 32px;
   gap: 10px;
   padding: 7px 16px;
   font-size: 10px;
@@ -623,7 +632,7 @@ tbody select:focus {
 
 .task-row {
   display: grid;
-  grid-template-columns: 22px 1fr 130px 140px 110px 32px;
+  grid-template-columns: 22px minmax(140px, 1.4fr) 120px 130px minmax(100px, 1fr) 72px 32px;
   align-items: center;
   gap: 10px;
   padding: 9px 16px;
@@ -680,7 +689,20 @@ tbody select:focus {
 .due-input:focus { outline: none; border-color: var(--brand); background: #fff; }
 .due-input.overdue { border-color: var(--warn); color: var(--warn); }
 
-.task-actions { display: flex; gap: 2px; align-items: center; }
+.notes-input {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  width: 100%;
+  background: transparent;
+  color: var(--ink);
+}
+.notes-input:hover { border-color: #C8BFB5; }
+.notes-input:focus { outline: none; border-color: var(--brand); background: #fff; }
+
+.task-actions { display: flex; gap: 2px; align-items: center; justify-content: center; }
 
 .email-btn {
   font-size: 14px;
@@ -746,13 +768,20 @@ tbody select:focus {
 /* ─────────────────────────────────────────────
    VISA / TRAVELER
 ───────────────────────────────────────────── */
+#travelerList {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .traveler-card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  margin-bottom: 14px;
   overflow: hidden;
   box-shadow: var(--shadow-sm);
+  width: 100%;
 }
 
 .traveler-header {
@@ -991,6 +1020,7 @@ tbody select:focus {
 
   .task-row .owner-input,
   .task-row .due-input,
+  .task-row .notes-input,
   .task-row .email-btn { display: none; }
 
   .lead-list { grid-template-columns: 1fr; }

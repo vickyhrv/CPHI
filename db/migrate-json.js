@@ -66,16 +66,17 @@ function importRows(table, rows) {
         });
       } else if (table === 'tasks') {
         db.prepare(`
-          INSERT INTO tasks (id, created_at, phase, task, done, owner, due_date)
-          VALUES (@id, @created_at, @phase, @task, @done, @owner, @due_date)
+          INSERT INTO tasks (id, created_at, phase, task, done, owner, due_date, notes)
+          VALUES (@id, @created_at, @phase, @task, @done, @owner, @due_date, @notes)
         `).run({
           id: row.id,
           created_at: row.created_at || new Date().toISOString(),
-          phase: row.phase || 'Other',
+          phase: (row.phase === 'Booth & Venue' ? 'Stall & Venue' : row.phase) || 'Other',
           task: row.task || '',
           done: boolToInt(row.done),
           owner: row.owner || '',
           due_date: row.due_date || '',
+          notes: row.notes || '',
         });
       } else if (table === 'leads') {
         db.prepare(`

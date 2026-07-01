@@ -118,16 +118,24 @@ ensure_nginx_can_start() {
   fi
 }
 
+ensure_git_safe() {
+  git config --global --add safe.directory "${APP_DIR}" 2>/dev/null || true
+  sudo -u "${APP_USER}" git config --global --add safe.directory "${APP_DIR}" 2>/dev/null || true
+}
+
 echo "==> Cloning application..."
 if [[ ! -d "${APP_DIR}/.git" ]]; then
   git clone "${GIT_REPO}" "${APP_DIR}"
 else
   echo "Repo exists at ${APP_DIR}, pulling latest..."
-  git -C "${APP_DIR}" pull --ff-only origin main || true
+  fix_app_permissions
+  ensure_git_safe
+  sudo -u "${APP_USER}" env HOME="${APP_DIR}" git -C "${APP_DIR}" pull --ff-only origin main || true
 fi
 
 # git clone/pull runs as root — cphi user must own the app dir before npm ci
 fix_app_permissions
+ensure_git_safe
 
 echo "==> Installing npm dependencies..."
 cd "${APP_DIR}"

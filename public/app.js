@@ -338,10 +338,71 @@ document.getElementById('exportBudgetBtn').addEventListener('click', () => expor
 // TASKS
 // ═══════════════════════════════════════════════════════════════════════════════
 let taskData = [];
+let taskListenersBound = false;
+
+function bindTaskListeners() {
+  if (taskListenersBound) return;
+  taskListenersBound = true;
+  const container = document.getElementById('taskPhases');
+
+  container.addEventListener('change', (e) => {
+    const inp = e.target;
+    if (!(inp instanceof HTMLInputElement)) return;
+    const rowEl = inp.closest('.task-row');
+    const rowId = rowEl?.dataset?.rowId;
+    if (!rowId) return;
+
+    if (inp.type === 'checkbox') saveTaskRow(rowId, 'done', inp.checked);
+    else if (inp.classList.contains('task-text-input')) saveTaskRow(rowId, 'task', inp.value);
+    else if (inp.classList.contains('owner-input')) saveTaskRow(rowId, 'owner', inp.value);
+    else if (inp.classList.contains('due-input')) saveTaskRow(rowId, 'due_date', inp.value);
+    else if (inp.classList.contains('notes-input')) saveTaskRow(rowId, 'notes', inp.value);
+  });
+
+  // Notes: also save on blur (change alone is easy to miss)
+  container.addEventListener('focusout', (e) => {
+    const inp = e.target;
+    if (!(inp instanceof HTMLInputElement) || !inp.classList.contains('notes-input')) return;
+    const rowId = inp.closest('.task-row')?.dataset?.rowId;
+    if (rowId) saveTaskRow(rowId, 'notes', inp.value);
+  });
+}
 
 async function loadTasks() {
   taskData = await api('/api/tasks');
   renderTasks();
+}
+
+function refreshTaskStats() {
+  const doneCount = taskData.filter((t) => t.done).length;
+  document.getElementById('statTasks').textContent = `${doneCount}/${taskData.length}`;
+}
+
+/** Same pattern as saveBudgetRow — update local row, PUT full row to API */
+async function saveTaskRow(id, field, value) {
+  const numId = parseRowId(id);
+  if (!numId) return;
+  const row = taskData.find((t) => parseRowId(t.id) === numId);
+  if (!row) return;
+  if (field !== 'done' && String(row[field] ?? '') === String(value)) return;
+  row[field] = value;
+  if (field === 'done') {
+    const el = document.querySelector(`.task-row[data-row-id="${row.id}"]`);
+    if (el) el.classList.toggle('task-done', !!value);
+  }
+  refreshTaskStats();
+  try {
+    const updated = await api(`/api/tasks/${numId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...row, who: currentUser }),
+    });
+    Object.assign(row, updated);
+    if (field === 'done') renderTasks();
+  } catch (err) {
+    showApiError(err);
+    await loadTasks();
+  }
 }
 
 function renderTasks() {
@@ -364,7 +425,7 @@ function renderTasks() {
         <span>${phaseDone}/${items.length} done</span>
       </div>
       <div class="task-col-headers">
-        <span></span><span>Task</span><span>Owner</span><span>Due date</span><span>Actions</span><span></span>
+        <span></span><span>Task</span><span>Owner</span><span>Due date</span><span>Notes</span><span>Actions</span><span></span>
       </div>
     `;
 
@@ -379,6 +440,7 @@ function renderTasks() {
         <input class="task-text-input" value="${esc(t.task)}" />
         <input class="owner-input" placeholder="Owner" value="${esc(t.owner||'')}" />
         <input class="due-input ${overdue ? 'overdue' : ''}" type="date" value="${esc(t.due_date||'')}" title="${overdue ? 'Overdue!' : 'Due date'}" />
+        <input class="notes-input" placeholder="Notes" value="${esc(t.notes||'')}" />
         <div class="task-actions">
           ${t.owner && t.owner.includes('@')
             ? `<button type="button" class="email-btn" title="Send follow-up email to ${esc(t.owner)}">📧</button>`
@@ -387,20 +449,6 @@ function renderTasks() {
         </div>
         <button type="button" class="row-delete" data-row-id="${t.id}" title="Delete this task only">✕</button>
       `;
-
-      const rowId = t.id;
-      row.querySelector('input[type=checkbox]').addEventListener('change', e => {
-        updateTask(rowId, { ...t, done: e.target.checked, who: currentUser });
-      });
-      row.querySelector('.task-text-input').addEventListener('change', e => {
-        updateTask(rowId, { ...t, task: e.target.value });
-      });
-      row.querySelector('.owner-input').addEventListener('change', e => {
-        updateTask(rowId, { ...t, owner: e.target.value });
-      });
-      row.querySelector('.due-input').addEventListener('change', e => {
-        updateTask(rowId, { ...t, due_date: e.target.value });
-      });
 
       row.querySelector('.email-btn').addEventListener('click', () => {
         const owner = t.owner || '';
@@ -417,24 +465,6 @@ function renderTasks() {
   });
 
   document.getElementById('statTasks').textContent = `${doneCount}/${taskData.length}`;
-}
-
-async function updateTask(id, body) {
-  const numId = parseRowId(id);
-  if (!numId) return;
-  try {
-    const updated = await api(`/api/tasks/${numId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, who: currentUser })
-    });
-    const idx = taskData.findIndex(t => parseRowId(t.id) === numId);
-    if (idx >= 0) taskData[idx] = updated;
-    renderTasks();
-  } catch (err) {
-    showApiError(err);
-    await loadTasks();
-  }
 }
 
 async function deleteTask(id) {
@@ -838,12 +868,13 @@ function openModal(type, data) {
   } else if (type === 'task') {
     modal.innerHTML = `
       <h3>Add task</h3>
-      <div class="field-group"><label>Phase / Group</label><input id="f_phase" placeholder="e.g. Booth & Venue" /></div>
+      <div class="field-group"><label>Phase / Group</label><input id="f_phase" placeholder="e.g. Stall & Venue" /></div>
       <div class="field-group"><label>Task *</label><input id="f_task" /></div>
       <div class="field-row">
         <div class="field-group"><label>Owner (name or email)</label><input id="f_owner" /></div>
         <div class="field-group"><label>Due date</label><input id="f_due" type="date" /></div>
       </div>
+      <div class="field-group"><label>Notes</label><input id="f_notes" placeholder="Optional notes" /></div>
       <div class="modal-actions">
         <button class="btn-secondary" id="cancelBtn">Cancel</button>
         <button class="btn-primary" id="saveBtn">Add task</button>
@@ -856,7 +887,13 @@ function openModal(type, data) {
       await api('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phase, task, owner: modal.querySelector('#f_owner').value, due_date: modal.querySelector('#f_due').value, who: currentUser })
+        body: JSON.stringify({
+          phase, task,
+          owner: modal.querySelector('#f_owner').value,
+          due_date: modal.querySelector('#f_due').value,
+          notes: modal.querySelector('#f_notes').value,
+          who: currentUser,
+        })
       });
       closeModal(); loadTasks();
     });
@@ -976,6 +1013,7 @@ function openModal(type, data) {
 // INIT
 // ═══════════════════════════════════════════════════════════════════════════════
 initIdentity();
+bindTaskListeners();
 
 document.getElementById('logoutBtn').addEventListener('click', async () => {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });

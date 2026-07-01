@@ -143,6 +143,16 @@ sudo certbot --nginx -d cphi-milan.hrvglobal.ai
 node -v   # must be v22.x or higher
 ```
 
+**git: dubious ownership** (deploy pull fails):
+
+```bash
+sudo git config --global --add safe.directory /opt/cphi-app
+sudo chown -R cphi:cphi /opt/cphi-app
+sudo bash /opt/cphi-app/deploy/deploy.sh
+```
+
+This is not a public-repo issue — it happens when `sudo git` runs in a folder owned by the `cphi` user. Latest `deploy.sh` fixes this automatically.
+
 **Nginx failed to start** (setup stops at `Job for nginx.service failed`):
 
 ```bash

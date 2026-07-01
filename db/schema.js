@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   task        TEXT NOT NULL,
   done        INTEGER NOT NULL DEFAULT 0,
   owner       TEXT NOT NULL DEFAULT '',
-  due_date    TEXT NOT NULL DEFAULT ''
+  due_date    TEXT NOT NULL DEFAULT '',
+  notes       TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS leads (
@@ -87,14 +88,35 @@ CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity_log(ts DESC);
 `;
 
-const MIGRATION_VERSION = 1;
+const MIGRATION_VERSION = 2;
+
+function columnExists(db, table, column) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  return cols.some((c) => c.name === column);
+}
+
+function applyMigration(db, version) {
+  if (version === 2) {
+    if (!columnExists(db, 'tasks', 'notes')) {
+      db.exec(`ALTER TABLE tasks ADD COLUMN notes TEXT NOT NULL DEFAULT ''`);
+    }
+    db.prepare(`UPDATE tasks SET phase = ? WHERE phase = ?`).run('Stall & Venue', 'Booth & Venue');
+  }
+}
 
 function runMigrations(db) {
   db.exec(SCHEMA_SQL);
 
-  const applied = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(MIGRATION_VERSION);
-  if (!applied) {
-    db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run(MIGRATION_VERSION);
+  // Always ensure tasks.notes exists (safe if column already added)
+  if (!columnExists(db, 'tasks', 'notes')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN notes TEXT NOT NULL DEFAULT ''`);
+  }
+
+  for (let v = 1; v <= MIGRATION_VERSION; v += 1) {
+    const applied = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(v);
+    if (applied) continue;
+    applyMigration(db, v);
+    db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run(v);
   }
 }
 

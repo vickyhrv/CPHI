@@ -39,10 +39,10 @@ store.seedIfEmpty('budget_items', [
 })));
 
 store.seedIfEmpty('tasks', [
-  ['Booth & Venue', 'Confirm stand location and re-book space', '2026-07-15'],
-  ['Booth & Venue', 'Schedule booth build / refurbishment', '2026-07-31'],
-  ['Booth & Venue', 'Order venue services (power, internet, water)', '2026-08-15'],
-  ['Booth & Venue', 'Sort furniture, AV, signage refresh', '2026-08-31'],
+  ['Stall & Venue', 'Confirm stand location and re-book space', '2026-07-15'],
+  ['Stall & Venue', 'Schedule booth build / refurbishment', '2026-07-31'],
+  ['Stall & Venue', 'Order venue services (power, internet, water)', '2026-08-15'],
+  ['Stall & Venue', 'Sort furniture, AV, signage refresh', '2026-08-31'],
   ['Hospitality', 'Confirm approved catering vendor for drinks', '2026-08-01'],
   ['Hospitality', 'Book bar setup, glassware, stock', '2026-09-01'],
   ['Marketing', 'Decide and order giveaways', '2026-08-01'],
@@ -57,7 +57,7 @@ store.seedIfEmpty('tasks', [
   ['Post-Event', 'Follow up on leads', '2026-10-15'],
   ['Post-Event', 'Reconcile budget actuals', '2026-10-20'],
   ['Post-Event', 'Write recap for stakeholders', '2026-10-22'],
-].map(([phase, task, due_date]) => ({ phase, task, done: false, owner: '', due_date })));
+].map(([phase, task, due_date]) => ({ phase, task, done: false, owner: '', due_date, notes: '' })));
 
 store.seedIfEmpty('leads', []);
 store.seedIfEmpty('activity_log', []);
@@ -218,20 +218,31 @@ app.get('/api/budget/export.csv', (req, res) => {
 app.get('/api/tasks', (req, res) => res.json(store.all('tasks')));
 
 app.post('/api/tasks', (req, res) => {
-  const { phase = 'Other', task, owner = '', due_date = '', who = '' } = req.body;
+  const { phase = 'Other', task, owner = '', due_date = '', notes = '', who = '' } = req.body;
   if (!task) return res.status(400).json({ error: 'Task is required' });
-  const row = store.insert('tasks', { phase, task, owner, due_date, done: false });
+  const row = store.insert('tasks', { phase, task, owner, due_date, notes, done: false });
   logActivity('Added task', `"${task}" in ${phase}`, who);
   res.json(row);
 });
 
 app.put('/api/tasks/:id', (req, res) => {
-  const { phase, task, done, owner, due_date, who } = req.body;
-  const old = store.get('tasks', req.params.id);
-  const updated = store.update('tasks', req.params.id, { phase, task, done: !!done, owner, due_date });
+  const id = parseIdParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Invalid task id' });
+  const old = store.get('tasks', id);
+  if (!old) return res.status(404).json({ error: 'Task not found' });
+
+  const { phase, task, done, owner, due_date, notes, who } = req.body;
+  const updated = store.update('tasks', id, {
+    phase: phase ?? old.phase,
+    task: task ?? old.task,
+    done: done !== undefined ? !!done : !!old.done,
+    owner: owner ?? old.owner ?? '',
+    due_date: due_date ?? old.due_date ?? '',
+    notes: notes !== undefined ? String(notes) : (old.notes ?? ''),
+  });
   if (!updated) return res.status(404).json({ error: 'Task not found' });
-  if (old && !old.done && done) {
-    logActivity('Completed task', `"${task}"`, who || '');
+  if (!old.done && updated.done) {
+    logActivity('Completed task', `"${updated.task}"`, who || '');
   }
   res.json(updated);
 });
@@ -248,7 +259,7 @@ app.delete('/api/tasks/:id', (req, res) => {
 
 app.get('/api/tasks/export.csv', (req, res) => {
   const rows = store.all('tasks');
-  const headers = ['id', 'phase', 'task', 'done', 'owner', 'due_date', 'created_at'];
+  const headers = ['id', 'phase', 'task', 'done', 'owner', 'due_date', 'notes', 'created_at'];
   const exportRows = rows.map((t) => ({ ...t, done: t.done ? 'yes' : 'no' }));
   sendCsv(res, 'cphi-tasks.csv', exportRows, headers);
 });

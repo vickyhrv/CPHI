@@ -33,7 +33,7 @@ const TABLE_COLUMNS = {
     'category', 'item', 'last_year', 'this_year_est', 'actual', 'notes',
     'vendor', 'poc_name', 'poc_email', 'poc_phone', 'merchandise_notes',
   ],
-  tasks: ['phase', 'task', 'done', 'owner', 'due_date'],
+  tasks: ['phase', 'task', 'done', 'owner', 'due_date', 'notes'],
   leads: [
     'name', 'company', 'role', 'email', 'phone', 'country',
     'interest', 'priority', 'notes', 'captured_by', 'follow_up_date',
@@ -62,6 +62,7 @@ function normalizeOut(table, row) {
       if (key in out) out[key] = !!out[key];
     }
   }
+  if (table === 'tasks' && out.notes == null) out.notes = '';
   return out;
 }
 

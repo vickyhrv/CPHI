@@ -21,13 +21,25 @@ if [[ ! -d "${APP_DIR}/.git" ]]; then
   exit 1
 fi
 
-echo "==> Pulling ${BRANCH}..."
-git -C "${APP_DIR}" fetch origin
-git -C "${APP_DIR}" checkout "${BRANCH}"
-git -C "${APP_DIR}" pull --ff-only origin "${BRANCH}"
+fix_app_permissions() {
+  chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
+}
 
-# git pull as root leaves root-owned files — fix before npm
-chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
+ensure_git_safe() {
+  # sudo git as root on a cphi-owned repo triggers "dubious ownership"
+  git config --global --add safe.directory "${APP_DIR}" 2>/dev/null || true
+  sudo -u "${APP_USER}" git config --global --add safe.directory "${APP_DIR}" 2>/dev/null || true
+}
+
+fix_app_permissions
+ensure_git_safe
+
+echo "==> Pulling ${BRANCH}..."
+sudo -u "${APP_USER}" env HOME="${APP_DIR}" git -C "${APP_DIR}" fetch origin
+sudo -u "${APP_USER}" env HOME="${APP_DIR}" git -C "${APP_DIR}" checkout "${BRANCH}"
+sudo -u "${APP_USER}" env HOME="${APP_DIR}" git -C "${APP_DIR}" pull --ff-only origin "${BRANCH}"
+
+fix_app_permissions
 
 echo "==> npm install..."
 cd "${APP_DIR}"

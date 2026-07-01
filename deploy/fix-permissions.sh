@@ -16,6 +16,9 @@ echo "==> Fixing ownership..."
 chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
 chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" 2>/dev/null || true
 
+git config --global --add safe.directory "${APP_DIR}" 2>/dev/null || true
+sudo -u "${APP_USER}" git config --global --add safe.directory "${APP_DIR}" 2>/dev/null || true
+
 echo "==> Installing dependencies..."
 cd "${APP_DIR}"
 sudo -u "${APP_USER}" env HOME="${APP_DIR}" npm ci --omit=dev
