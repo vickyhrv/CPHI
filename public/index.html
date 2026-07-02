@@ -37,7 +37,7 @@
   <div class="tabs-strip">
     <nav class="tabs">
       <button class="tab-btn active" data-tab="overview">🏠 Overview</button>
-      <button class="tab-btn" data-tab="budget">💰 Budget</button>
+      <button class="tab-btn" data-tab="budget" id="budgetTabBtn">💰 Budget</button>
       <button class="tab-btn" data-tab="tasks">✅ Tasks</button>
       <button class="tab-btn" data-tab="leads">📋 Leads</button>
       <button class="tab-btn" data-tab="visa">🛂 Visas</button>
@@ -75,7 +75,7 @@
     </div>
 
     <div class="stat-grid">
-      <div class="stat-card">
+      <div class="stat-card" id="overviewBudgetStat">
         <span class="stat-label">Budget tracked</span>
         <span class="stat-value" id="statBudgetEst">$0</span>
         <span class="stat-sub" id="statBudgetActual">$0 actual so far</span>
@@ -218,7 +218,7 @@
         <button class="btn-primary" id="createUserBtn" type="button">+ Create user</button>
       </div>
     </div>
-    <p class="admin-hint">Manage team accounts. All changes are recorded in the Log tab.</p>
+    <p class="admin-hint">Manage team accounts. Toggle <strong>Budget</strong> to let a user see the Budget tab and figures. Admins always have full access.</p>
     <div class="table-wrap admin-table-wrap">
       <table class="admin-users-table" id="adminUsersTable">
         <thead>
@@ -227,6 +227,7 @@
             <th>Display name</th>
             <th>Role</th>
             <th>Status</th>
+            <th>Budget</th>
             <th>Actions</th>
           </tr>
         </thead>

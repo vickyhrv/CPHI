@@ -102,7 +102,8 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   display_name  TEXT NOT NULL DEFAULT '',
   role          TEXT NOT NULL DEFAULT 'user',
-  enabled       INTEGER NOT NULL DEFAULT 1
+  enabled       INTEGER NOT NULL DEFAULT 1,
+  can_view_budget INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS task_phases (
@@ -120,7 +121,7 @@ CREATE INDEX IF NOT EXISTS idx_file_assets_updated ON file_assets(updated_at DES
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 `;
 
-const MIGRATION_VERSION = 4;
+const MIGRATION_VERSION = 5;
 
 function columnExists(db, table, column) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -170,6 +171,12 @@ function applyMigration(db, version) {
       );
       CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
     `);
+  }
+  if (version === 5) {
+    if (!columnExists(db, 'users', 'can_view_budget')) {
+      db.exec(`ALTER TABLE users ADD COLUMN can_view_budget INTEGER NOT NULL DEFAULT 0`);
+    }
+    db.exec(`UPDATE users SET can_view_budget = 1 WHERE role = 'admin'`);
   }
 }
 

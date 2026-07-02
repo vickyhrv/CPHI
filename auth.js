@@ -23,15 +23,27 @@ function findUser(username, password) {
   return users.verifyLogin(username, password);
 }
 
+function refreshSessionFromDb(session) {
+  const row = users.getById(session.userId);
+  if (!row || !row.enabled) return null;
+  session.username = row.username;
+  session.displayName = row.display_name;
+  session.role = row.role;
+  session.canViewBudget = users.canViewBudget(row);
+  return session;
+}
+
 function createSession(user) {
   const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, {
+  const session = {
     userId: user.id,
     username: user.username,
     displayName: user.display_name,
     role: user.role,
+    canViewBudget: users.canViewBudget(user),
     expiresAt: Date.now() + SESSION_TTL_MS,
-  });
+  };
+  sessions.set(token, session);
   return token;
 }
 
@@ -46,7 +58,7 @@ function getSession(req) {
     sessions.delete(token);
     return null;
   }
-  return session;
+  return refreshSessionFromDb(session);
 }
 
 function destroySession(req) {
@@ -102,6 +114,18 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+function requireBudgetAccess(req, res, next) {
+  const session = getSession(req);
+  if (!session) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (!session.canViewBudget) {
+    return res.status(403).json({ error: 'Budget access not granted' });
+  }
+  req.user = session;
+  next();
+}
+
 function authGate(req, res, next) {
   const { path: pathname } = req;
 
@@ -139,6 +163,7 @@ module.exports = {
   clearSessionCookie,
   requireAuth,
   requireAdmin,
+  requireBudgetAccess,
   authGate,
   isPublicPath,
 };

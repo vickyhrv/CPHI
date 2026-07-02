@@ -62,6 +62,11 @@ form.addEventListener('submit', async (e) => {
     } else {
       localStorage.removeItem('cphi_is_admin');
     }
+    if (data.canViewBudget) {
+      localStorage.setItem('cphi_can_budget', '1');
+    } else {
+      localStorage.removeItem('cphi_can_budget');
+    }
     if (data.role) {
       localStorage.setItem('cphi_role', data.role);
     }

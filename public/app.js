@@ -76,7 +76,7 @@ const deleteLocks = {
 
 // ── Identity (who is using the app) ──────────────────────────────────────────
 let currentUser = localStorage.getItem('cphi_user') || '';
-let currentSession = { role: 'user', isAdmin: false, username: '' };
+let currentSession = { role: 'user', isAdmin: false, username: '', canViewBudget: false };
 
 function initIdentity() {
   const banner = document.getElementById('identityBanner');
@@ -109,6 +109,7 @@ function initIdentity() {
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
+    if (btn.dataset.tab === 'budget' && !currentSession.canViewBudget) return;
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
@@ -461,6 +462,19 @@ function showAdminTabIfAllowed(isAdmin) {
   if (!adminTab) return;
   const allowed = isAdmin || localStorage.getItem('cphi_is_admin') === '1';
   adminTab.style.display = allowed ? '' : 'none';
+}
+
+function applyBudgetVisibility(canView) {
+  currentSession.canViewBudget = !!canView;
+  const budgetTab = document.getElementById('budgetTabBtn');
+  const budgetStat = document.getElementById('overviewBudgetStat');
+  const capBar = document.getElementById('budgetCapBar');
+  if (budgetTab) budgetTab.style.display = canView ? '' : 'none';
+  if (budgetStat) budgetStat.style.display = canView ? '' : 'none';
+  if (capBar && !canView) capBar.style.display = 'none';
+  if (!canView && document.getElementById('budget')?.classList.contains('active')) {
+    document.querySelector('.tab-btn[data-tab="overview"]')?.click();
+  }
 }
 
 function refreshTaskStats() {
@@ -1149,7 +1163,7 @@ function renderAdminUsers() {
   const body = document.getElementById('adminUsersBody');
   if (!body) return;
   if (!adminUsers.length) {
-    body.innerHTML = '<tr><td colspan="5" class="admin-empty">No users yet — create one above.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="admin-empty">No users yet — create one above.</td></tr>';
     return;
   }
   body.innerHTML = '';
@@ -1157,11 +1171,19 @@ function renderAdminUsers() {
     const tr = document.createElement('tr');
     if (!u.enabled) tr.classList.add('user-disabled');
     const isSelf = currentSession.username && u.username === currentSession.username;
+    const isAdminUser = u.role === 'admin';
+    const budgetOn = isAdminUser || u.can_view_budget;
     tr.innerHTML = `
       <td><code class="user-code">${esc(u.username)}</code></td>
       <td>${esc(u.display_name)}</td>
       <td><span class="role-badge role-${esc(u.role)}">${esc(u.role)}</span></td>
       <td><span class="status-pill ${u.enabled ? 'status-on' : 'status-off'}">${u.enabled ? 'Active' : 'Disabled'}</span></td>
+      <td class="admin-budget-cell">
+        <label class="toggle-switch" title="${isAdminUser ? 'Admins always have budget access' : 'Allow Budget tab & data'}">
+          <input type="checkbox" data-action="budget-access" data-id="${u.id}" ${budgetOn ? 'checked' : ''} ${isAdminUser ? 'disabled' : ''} />
+          <span class="toggle-slider"></span>
+        </label>
+      </td>
       <td class="admin-actions-cell">
         <button type="button" class="btn-ghost btn-sm" data-action="reset" data-id="${u.id}">Reset pwd</button>
         <button type="button" class="btn-ghost btn-sm" data-action="toggle" data-id="${u.id}">${u.enabled ? 'Disable' : 'Enable'}</button>
@@ -1173,6 +1195,30 @@ function renderAdminUsers() {
 }
 
 document.getElementById('createUserBtn')?.addEventListener('click', () => openModal('createUser'));
+
+document.getElementById('adminUsersBody')?.addEventListener('change', async (e) => {
+  const input = e.target.closest('input[data-action="budget-access"]');
+  if (!input || input.disabled) return;
+  const id = input.dataset.id;
+  const user = adminUsers.find((u) => String(u.id) === String(id));
+  if (!user) return;
+  const next = input.checked;
+  try {
+    await api(`/api/admin/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ canViewBudget: next }),
+    });
+    await loadAdminUsers();
+    if (String(currentSession.username) === String(user.username)) {
+      applyBudgetVisibility(next);
+    }
+    clearApiError();
+  } catch (err) {
+    input.checked = !next;
+    showApiError(err);
+  }
+});
 
 document.getElementById('adminUsersBody')?.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-action]');
@@ -1218,6 +1264,7 @@ const ACTION_ICONS = {
   'Uploaded file': '📁', 'Deleted file': '🗑️',
   'Created user': '👤', 'Updated user': '✏️', 'Disabled user': '🚫', 'Enabled user': '✅',
   'Reset user password': '🔑', 'Deleted user': '🗑️', 'Changed own password': '🔒',
+  'Granted budget access': '💰', 'Revoked budget access': '🚫',
   'Added task phase': '📂',
 };
 
@@ -1460,6 +1507,12 @@ function openModal(type, data) {
           <select id="f_role"><option value="user">User</option><option value="admin">Admin</option></select>
         </div>
       </div>
+      <div class="field-group field-check">
+        <label class="check-label">
+          <input type="checkbox" id="f_budget_access" />
+          Allow access to Budget tab &amp; figures
+        </label>
+      </div>
       <div class="modal-actions">
         <button class="btn-secondary" id="cancelBtn">Cancel</button>
         <button class="btn-primary" id="saveBtn">Create user</button>
@@ -1475,6 +1528,7 @@ function openModal(type, data) {
             displayName: modal.querySelector('#f_display').value.trim(),
             password: modal.querySelector('#f_password').value,
             role: modal.querySelector('#f_role').value,
+            canViewBudget: modal.querySelector('#f_budget_access').checked,
           }),
         });
         closeModal();
@@ -1632,6 +1686,7 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
   localStorage.removeItem('cphi_is_admin');
   localStorage.removeItem('cphi_role');
+  localStorage.removeItem('cphi_can_budget');
   window.location.href = '/login.html';
 });
 
@@ -1656,10 +1711,14 @@ async function bootstrapApp() {
     else localStorage.removeItem('cphi_is_admin');
     document.getElementById('identityBanner').style.display = 'none';
     showAdminTabIfAllowed(me.isAdmin);
+    applyBudgetVisibility(me.canViewBudget);
   }
   try {
-    await loadSettings();
-    await Promise.all([loadBudget(), loadTasks(), loadLeads(), loadTravelers()]);
+    const loads = [loadTasks(), loadLeads(), loadTravelers()];
+    if (me.authenticated && me.canViewBudget) {
+      loads.push(loadSettings(), loadBudget());
+    }
+    await Promise.all(loads);
     clearApiError();
   } catch (err) {
     showApiError(err);

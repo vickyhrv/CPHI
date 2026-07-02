@@ -21,6 +21,7 @@ const {
   clearSessionCookie,
   authGate,
   requireAdmin,
+  requireBudgetAccess,
 } = require('./auth');
 const users = require('./lib/users');
 const { validatePasswordPolicy } = require('./lib/password');
@@ -104,6 +105,7 @@ app.post('/api/auth/login', (req, res) => {
     displayName: user.display_name,
     role: user.role,
     isAdmin: user.role === 'admin',
+    canViewBudget: user.canViewBudget,
   });
 });
 
@@ -124,6 +126,7 @@ app.get('/api/auth/me', (req, res) => {
     displayName: session.displayName,
     role: session.role,
     isAdmin: session.role === 'admin',
+    canViewBudget: !!session.canViewBudget,
   });
 });
 
@@ -225,12 +228,12 @@ const fileUpload = multer({
   },
 });
 
-// ─── Settings API ─────────────────────────────────────────────────────────────
-app.get('/api/settings', (req, res) => {
+// ─── Settings API (budget cap — requires budget access) ───────────────────────
+app.get('/api/settings', requireBudgetAccess, (req, res) => {
   const rows = store.all('settings');
   res.json(rows[0] || { budget_cap: 0, currency: 'USD' });
 });
-app.put('/api/settings', (req, res) => {
+app.put('/api/settings', requireBudgetAccess, (req, res) => {
   const rows = store.all('settings');
   const existing = rows[0];
   const { budget_cap, currency } = req.body;
@@ -242,9 +245,9 @@ app.put('/api/settings', (req, res) => {
 });
 
 // ─── Budget API ───────────────────────────────────────────────────────────────
-app.get('/api/budget', (req, res) => res.json(store.all('budget_items')));
+app.get('/api/budget', requireBudgetAccess, (req, res) => res.json(store.all('budget_items')));
 
-app.post('/api/budget', (req, res) => {
+app.post('/api/budget', requireBudgetAccess, (req, res) => {
   const { category = 'Other', item = 'New item', last_year = 0, this_year_est = 0,
     actual = 0, notes = '', vendor = '', poc_name = '', poc_email = '', poc_phone = '',
     merchandise_notes = '', who = '' } = req.body;
@@ -254,7 +257,7 @@ app.post('/api/budget', (req, res) => {
   res.json(row);
 });
 
-app.put('/api/budget/:id', (req, res) => {
+app.put('/api/budget/:id', requireBudgetAccess, (req, res) => {
   const { category, item, last_year, this_year_est, actual, notes,
     vendor, poc_name, poc_email, poc_phone, merchandise_notes } = req.body;
   const updated = store.update('budget_items', req.params.id, { category, item,
@@ -265,7 +268,7 @@ app.put('/api/budget/:id', (req, res) => {
   res.json(updated);
 });
 
-app.delete('/api/budget/:id', (req, res) => {
+app.delete('/api/budget/:id', requireBudgetAccess, (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id < 1) {
     return res.status(400).json({ error: 'Invalid budget item id' });
@@ -279,7 +282,7 @@ app.delete('/api/budget/:id', (req, res) => {
   res.json({ ok: true, deletedId: id });
 });
 
-app.get('/api/budget/export.csv', (req, res) => {
+app.get('/api/budget/export.csv', requireBudgetAccess, (req, res) => {
   const rows = store.all('budget_items');
   const headers = [
     'id', 'category', 'item', 'last_year', 'this_year_est', 'actual', 'notes',
@@ -618,10 +621,10 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
 
 app.post('/api/admin/users', requireAdmin, (req, res) => {
   try {
-    const { username, displayName, password, role = 'user' } = req.body || {};
+    const { username, displayName, password, role = 'user', canViewBudget = false } = req.body || {};
     const policyErr = validatePasswordPolicy(password);
     if (policyErr) return res.status(400).json({ error: policyErr });
-    const row = users.createUser({ username, displayName, password, role });
+    const row = users.createUser({ username, displayName, password, role, canViewBudget });
     logActivity('Created user', `${row.username} (${row.role})`, whoFromSession(req));
     res.json(row);
   } catch (err) {
@@ -633,10 +636,16 @@ app.put('/api/admin/users/:id', requireAdmin, (req, res) => {
   try {
     const id = parseIdParam(req.params.id);
     if (!id) return res.status(400).json({ error: 'Invalid user id' });
-    const { displayName, role, enabled } = req.body || {};
-    const updated = users.updateUser(id, { displayName, role, enabled });
+    const { displayName, role, enabled, canViewBudget } = req.body || {};
+    const existing = users.getById(id);
+    if (!existing) return res.status(404).json({ error: 'User not found' });
+    const updated = users.updateUser(id, { displayName, role, enabled, canViewBudget });
     if (!updated) return res.status(404).json({ error: 'User not found' });
-    if (enabled === false) {
+    if (canViewBudget === true && !users.canViewBudget(existing)) {
+      logActivity('Granted budget access', updated.username, whoFromSession(req));
+    } else if (canViewBudget === false && users.canViewBudget(existing) && updated.role !== 'admin') {
+      logActivity('Revoked budget access', updated.username, whoFromSession(req));
+    } else if (enabled === false) {
       logActivity('Disabled user', updated.username, whoFromSession(req));
     } else if (enabled === true) {
       logActivity('Enabled user', updated.username, whoFromSession(req));
