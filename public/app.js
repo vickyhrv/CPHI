@@ -248,9 +248,14 @@ function cellOrEmpty(value, label = '—') {
   return v ? esc(v) : `<span class="cell-empty">${label}</span>`;
 }
 
-function categoryOptions(selected) {
-  const cats = [...new Set([...BUDGET_CATEGORIES, ...budgetData.map((r) => r.category)].filter(Boolean))];
-  return cats.map((c) => `<option value="${esc(c)}" ${c === selected ? 'selected' : ''}>${esc(c)}</option>`).join('');
+function refreshCategoryDatalist() {
+  const dl = document.getElementById('budgetCategoryList');
+  if (!dl) return;
+  const cats = [...new Set([
+    ...BUDGET_CATEGORIES,
+    ...budgetData.map((r) => r.category),
+  ].filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  dl.innerHTML = cats.map((c) => `<option value="${esc(c)}"></option>`).join('');
 }
 
 async function loadBudget() {
@@ -276,6 +281,7 @@ function refreshBudgetTotals() {
 function renderBudget() {
   const body = document.getElementById('budgetBody');
   body.innerHTML = '';
+  refreshCategoryDatalist();
 
   budgetData.forEach((row) => {
     const tr = document.createElement('tr');
@@ -283,7 +289,7 @@ function renderBudget() {
     const summary = vendorSummary(row);
     tr.innerHTML = `
       <td class="budget-cat-cell">
-        <select class="budget-cat-select" data-field="category">${categoryOptions(row.category)}</select>
+        <input class="budget-cat-input" list="budgetCategoryList" value="${esc(row.category || '')}" data-field="category" placeholder="Pick or type" title="Choose from list or type a custom category" />
       </td>
       <td class="budget-item-cell"><input class="budget-item-input" value="${esc(row.item)}" data-field="item" /></td>
       <td class="budget-vendor-cell">
@@ -299,6 +305,9 @@ function renderBudget() {
 
     tr.querySelectorAll('input, select').forEach((inp) => {
       inp.addEventListener('change', () => saveBudgetRow(row.id, inp.dataset.field, inp.value));
+      if (inp.dataset.field === 'category') {
+        inp.addEventListener('focusout', () => saveBudgetRow(row.id, 'category', inp.value.trim()));
+      }
     });
 
     body.appendChild(tr);
@@ -313,6 +322,7 @@ async function saveBudgetRow(id, field, value) {
   const row = budgetData.find(r => parseRowId(r.id) === numId);
   if (!row) return;
   row[field] = value;
+  if (field === 'category') refreshCategoryDatalist();
   refreshBudgetTotals();
   try {
     await api(`/api/budget/${numId}`, {

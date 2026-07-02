@@ -604,7 +604,7 @@ tbody select:focus {
 .budget-notes-cell { min-width: 120px; }
 .budget-actions-cell { width: 40px; text-align: center; }
 
-.budget-cat-select,
+.budget-cat-input,
 .budget-item-input,
 .budget-notes-input {
   width: 100%;
@@ -616,7 +616,7 @@ tbody select:focus {
   background: #fff;
   color: var(--ink);
 }
-.budget-cat-select:focus,
+.budget-cat-input:focus,
 .budget-item-input:focus,
 .budget-notes-input:focus {
   outline: none;
