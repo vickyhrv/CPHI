@@ -106,17 +106,53 @@ function initIdentity() {
   chip.title = 'Account — change password';
 }
 
-// ── Tabs ──────────────────────────────────────────────────────────────────────
-document.querySelectorAll('.tab-btn').forEach(btn => {
+// ── Tabs & URL routing ─────────────────────────────────────────────────────────
+const VALID_TABS = ['overview', 'budget', 'tasks', 'leads', 'visa', 'files', 'admin', 'activity'];
+
+function tabFromPath() {
+  const seg = window.location.pathname.replace(/^\//, '').split('/')[0];
+  if (VALID_TABS.includes(seg)) return seg;
+  if (window.location.pathname === '/' || window.location.pathname === '/index.html') return 'overview';
+  return 'overview';
+}
+
+function tabToPath(tab) {
+  return tab === 'overview' ? '/overview' : `/${tab}`;
+}
+
+function switchTab(tab, { pushState = true } = {}) {
+  if (tab === 'budget' && !currentSession.canViewBudget) tab = 'overview';
+  const isAdmin = currentSession.isAdmin || localStorage.getItem('cphi_is_admin') === '1';
+  if (tab === 'admin' && !isAdmin) tab = 'overview';
+  if (!VALID_TABS.includes(tab)) tab = 'overview';
+
+  document.querySelectorAll('.tab-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+  });
+  document.querySelectorAll('.panel').forEach((p) => {
+    p.classList.toggle('active', p.id === tab);
+  });
+
+  if (tab === 'activity') loadActivity();
+  if (tab === 'files') loadFiles();
+  if (tab === 'admin') loadAdminUsers();
+
+  if (pushState) {
+    const path = tabToPath(tab);
+    if (window.location.pathname !== path) {
+      history.pushState({ tab }, '', path);
+    }
+  }
+}
+
+window.addEventListener('popstate', () => {
+  switchTab(tabFromPath(), { pushState: false });
+});
+
+document.querySelectorAll('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     if (btn.dataset.tab === 'budget' && !currentSession.canViewBudget) return;
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(btn.dataset.tab).classList.add('active');
-    if (btn.dataset.tab === 'activity') loadActivity();
-    if (btn.dataset.tab === 'files') loadFiles();
-    if (btn.dataset.tab === 'admin') loadAdminUsers();
+    switchTab(btn.dataset.tab);
   });
 });
 
@@ -412,7 +448,19 @@ function taskStatusOptions(selected) {
 }
 
 let taskData = [];
-let taskPhaseNames = [];
+let taskPhaseMeta = [];
+
+function normalizePhaseList(phases) {
+  if (!Array.isArray(phases) || !phases.length) return [];
+  if (typeof phases[0] === 'string') {
+    return phases.map((name) => ({ id: null, name, taskCount: 0, inDb: false }));
+  }
+  return phases;
+}
+
+function phaseNamesList() {
+  return taskPhaseMeta.map((p) => p.name);
+}
 let taskListenersBound = false;
 const taskSaveTimers = new Map();
 
@@ -495,7 +543,12 @@ async function loadTasks() {
     console.warn('task-phases API unavailable, using phases from tasks', err.message);
     phases = [...new Set(tasks.map((t) => t.phase).filter(Boolean))];
   }
-  taskPhaseNames = phases;
+  taskPhaseMeta = normalizePhaseList(phases).map((p) => ({
+    ...p,
+    taskCount: tasks.filter(
+      (t) => String(t.phase || '').trim().toLowerCase() === String(p.name || '').trim().toLowerCase()
+    ).length,
+  }));
   renderTasks();
 }
 
@@ -515,7 +568,7 @@ function applyBudgetVisibility(canView) {
   if (budgetStat) budgetStat.style.display = canView ? '' : 'none';
   if (capBar && !canView) capBar.style.display = 'none';
   if (!canView && document.getElementById('budget')?.classList.contains('active')) {
-    document.querySelector('.tab-btn[data-tab="overview"]')?.click();
+    switchTab('overview', { pushState: true });
   }
 }
 
@@ -572,9 +625,9 @@ async function saveTaskRow(id, field, value) {
 function renderTasks() {
   const container = document.getElementById('taskPhases');
   container.innerHTML = '';
-  const phases = taskPhaseNames.length
-    ? [...taskPhaseNames]
-    : [...new Set(taskData.map((t) => t.phase))];
+  const phases = taskPhaseMeta.length
+    ? [...taskPhaseMeta]
+    : [...new Set(taskData.map((t) => t.phase))].map((name) => ({ id: null, name, taskCount: 0, inDb: false }));
   let doneCount = 0;
 
   if (!phases.length && !taskData.length) {
@@ -583,7 +636,9 @@ function renderTasks() {
     return;
   }
 
-  phases.forEach((phase) => {
+  phases.forEach((meta) => {
+    const phase = typeof meta === 'string' ? meta : meta.name;
+    const phaseId = typeof meta === 'object' ? meta.id : null;
     const items = taskData.filter((t) => t.phase === phase);
     const phaseDone = items.filter((t) => taskIsDone(t)).length;
     doneCount += phaseDone;
@@ -596,6 +651,7 @@ function renderTasks() {
         <span class="phase-title">${esc(phase)}</span>
         <div class="phase-header-actions">
           <button type="button" class="btn-ghost phase-add-btn" data-phase="${esc(phase)}">+ Add task</button>
+          <button type="button" class="phase-delete-btn" data-phase-id="${phaseId || ''}" data-phase-name="${esc(phase)}" title="Delete this phase">✕</button>
           <span class="phase-done-count">${phaseDone}/${items.length} done</span>
         </div>
       </div>
@@ -682,6 +738,12 @@ async function deleteTask(id) {
 }
 
 document.getElementById('taskPhases').addEventListener('click', (e) => {
+  const delPhaseBtn = e.target.closest('.phase-delete-btn[data-phase-name]');
+  if (delPhaseBtn) {
+    e.preventDefault();
+    deletePhase(delPhaseBtn.dataset.phaseId, delPhaseBtn.dataset.phaseName);
+    return;
+  }
   const phaseBtn = e.target.closest('.phase-add-btn[data-phase]');
   if (phaseBtn) {
     e.preventDefault();
@@ -705,6 +767,29 @@ document.getElementById('taskPhases').addEventListener('click', (e) => {
 document.getElementById('addTaskBtn').addEventListener('click', () => openModal('task'));
 document.getElementById('addPhaseBtn').addEventListener('click', () => openModal('addPhase'));
 document.getElementById('exportTasksBtn').addEventListener('click', () => exportCsv('/api/tasks/export.csv'));
+
+async function deletePhase(phaseId, phaseName) {
+  const items = taskData.filter(
+    (t) => String(t.phase || '').trim().toLowerCase() === String(phaseName || '').trim().toLowerCase()
+  );
+  const msg = items.length
+    ? `Delete phase "${phaseName}" and all ${items.length} task(s) inside it?`
+    : `Delete empty phase "${phaseName}"?`;
+  if (!confirm(msg)) return;
+
+  try {
+    const q = items.length ? '?deleteTasks=1' : '';
+    if (phaseId) {
+      await api(`/api/task-phases/${phaseId}${q}`, { method: 'DELETE' });
+    } else {
+      await api(`/api/task-phases?phase=${encodeURIComponent(phaseName)}${items.length ? '&deleteTasks=1' : ''}`, { method: 'DELETE' });
+    }
+    await loadTasks();
+    clearApiError();
+  } catch (err) {
+    showApiError(err);
+  }
+}
 
 // WhatsApp tasks summary
 document.getElementById('whatsappTasksBtn').addEventListener('click', () => {
@@ -1337,7 +1422,7 @@ const ACTION_ICONS = {
   'Created user': '👤', 'Updated user': '✏️', 'Disabled user': '🚫', 'Enabled user': '✅',
   'Reset user password': '🔑', 'Deleted user': '🗑️', 'Changed own password': '🔒',
   'Granted budget access': '💰', 'Revoked budget access': '🚫',
-  'Added task phase': '📂',
+  'Added task phase': '📂', 'Deleted task phase': '🗑️',
   'Updated task status': '🔄', 'Reopened task': '↩️',
 };
 
@@ -1457,7 +1542,7 @@ function openModal(type, data) {
 
   } else if (type === 'task') {
     const presetPhase = data?.phase || '';
-    const phaseOptions = [...new Set([...taskPhaseNames, ...taskData.map((t) => t.phase)].filter(Boolean))]
+    const phaseOptions = [...new Set([...phaseNamesList(), ...taskData.map((t) => t.phase)].filter(Boolean))]
       .map((p) => `<option value="${esc(p)}"></option>`).join('');
     modal.innerHTML = `
       <h3>Add task</h3>
@@ -1842,6 +1927,7 @@ async function bootstrapApp() {
     }
     await Promise.all(loads);
     clearApiError();
+    switchTab(tabFromPath(), { pushState: false });
   } catch (err) {
     showApiError(err);
   }

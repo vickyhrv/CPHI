@@ -19,7 +19,7 @@ async function checkExistingSession() {
     if (res.ok) {
       const data = await res.json();
       if (data.authenticated) {
-        window.location.replace('/');
+        window.location.replace('/overview');
       }
     }
   } catch { /* offline or server down */ }
@@ -70,7 +70,7 @@ form.addEventListener('submit', async (e) => {
     if (data.role) {
       localStorage.setItem('cphi_role', data.role);
     }
-    window.location.replace('/');
+    window.location.replace('/overview');
   } catch {
     errorEl.textContent = 'Could not reach the server. Make sure npm start is running.';
     errorEl.hidden = false;

@@ -194,22 +194,46 @@ function whoFromSession(req) {
   return req.user?.displayName || whoFromReq(req) || 'Unknown';
 }
 
-function getMergedPhases() {
-  const ordered = [];
+function getMergedPhaseMeta() {
+  const taskCounts = {};
+  for (const t of store.all('tasks')) {
+    const name = String(t.phase || '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    taskCounts[key] = (taskCounts[key] || 0) + 1;
+  }
+
+  const result = [];
   const seen = new Set();
   for (const p of store.all('task_phases')) {
     const name = String(p.name || '').trim();
     if (!name || seen.has(name.toLowerCase())) continue;
     seen.add(name.toLowerCase());
-    ordered.push(name);
+    result.push({
+      id: p.id,
+      name,
+      sort_order: p.sort_order || 0,
+      taskCount: taskCounts[name.toLowerCase()] || 0,
+      inDb: true,
+    });
   }
   for (const t of store.all('tasks')) {
     const name = String(t.phase || '').trim();
     if (!name || seen.has(name.toLowerCase())) continue;
     seen.add(name.toLowerCase());
-    ordered.push(name);
+    result.push({
+      id: null,
+      name,
+      sort_order: 9999,
+      taskCount: taskCounts[name.toLowerCase()] || 0,
+      inDb: false,
+    });
   }
-  return ordered;
+  return result;
+}
+
+function getMergedPhases() {
+  return getMergedPhaseMeta().map((p) => p.name);
 }
 
 const fileUpload = multer({
@@ -611,7 +635,7 @@ app.delete('/api/files/:id', (req, res) => {
 
 // ─── Task phases API ──────────────────────────────────────────────────────────
 app.get('/api/task-phases', (req, res) => {
-  res.json(getMergedPhases());
+  res.json(getMergedPhaseMeta());
 });
 
 app.post('/api/task-phases', (req, res) => {
@@ -621,15 +645,94 @@ app.post('/api/task-phases', (req, res) => {
     const existing = store.all('task_phases').find(
       (p) => p.name.toLowerCase() === name.toLowerCase()
     );
-    if (existing) return res.json({ name: existing.name, id: existing.id });
+    if (existing) {
+      const taskCount = store.all('tasks').filter(
+        (t) => String(t.phase || '').trim().toLowerCase() === name.toLowerCase()
+      ).length;
+      return res.json({
+        id: existing.id,
+        name: existing.name,
+        sort_order: existing.sort_order,
+        taskCount,
+        inDb: true,
+      });
+    }
     const phases = store.all('task_phases');
     const maxSort = phases.reduce((m, p) => Math.max(m, p.sort_order || 0), 0);
     const row = store.insert('task_phases', { name, sort_order: maxSort + 1 });
     logActivity('Added task phase', `"${name}"`, whoFromSession(req));
-    res.json(row);
+    res.json({
+      id: row.id,
+      name: row.name,
+      sort_order: row.sort_order,
+      taskCount: 0,
+      inDb: true,
+    });
   } catch (err) {
     console.error('POST /api/task-phases', err);
     res.status(500).json({ error: err.message || 'Failed to add phase' });
+  }
+});
+
+app.delete('/api/task-phases/:id', (req, res) => {
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid phase id' });
+    const phaseRow = store.get('task_phases', id);
+    if (!phaseRow) return res.status(404).json({ error: 'Phase not found' });
+
+    const tasksInPhase = store.all('tasks').filter(
+      (t) => String(t.phase || '').trim().toLowerCase() === phaseRow.name.toLowerCase()
+    );
+    const deleteTasks = req.query.deleteTasks === '1' || req.query.deleteTasks === 'true';
+
+    if (tasksInPhase.length && !deleteTasks) {
+      return res.status(400).json({
+        error: `Phase has ${tasksInPhase.length} task(s). Confirm to delete them too.`,
+        taskCount: tasksInPhase.length,
+      });
+    }
+
+    for (const t of tasksInPhase) {
+      store.remove('tasks', t.id);
+      logActivity('Deleted task', `"${t.task}" (phase removed)`, whoFromReq(req));
+    }
+    store.remove('task_phases', id);
+    logActivity('Deleted task phase', `"${phaseRow.name}"`, whoFromSession(req));
+    res.json({ ok: true, deletedId: id, deletedTasks: tasksInPhase.length });
+  } catch (err) {
+    console.error('DELETE /api/task-phases/:id', err);
+    res.status(500).json({ error: err.message || 'Failed to delete phase' });
+  }
+});
+
+app.delete('/api/task-phases', (req, res) => {
+  try {
+    const name = String(req.query.phase || '').trim();
+    if (!name) return res.status(400).json({ error: 'Phase name is required' });
+    const tasksInPhase = store.all('tasks').filter(
+      (t) => String(t.phase || '').trim().toLowerCase() === name.toLowerCase()
+    );
+    const deleteTasks = req.query.deleteTasks === '1' || req.query.deleteTasks === 'true';
+    if (tasksInPhase.length && !deleteTasks) {
+      return res.status(400).json({
+        error: `Phase has ${tasksInPhase.length} task(s). Confirm to delete them too.`,
+        taskCount: tasksInPhase.length,
+      });
+    }
+    for (const t of tasksInPhase) {
+      store.remove('tasks', t.id);
+      logActivity('Deleted task', `"${t.task}" (phase removed)`, whoFromReq(req));
+    }
+    const phaseRow = store.all('task_phases').find(
+      (p) => p.name.toLowerCase() === name.toLowerCase()
+    );
+    if (phaseRow) store.remove('task_phases', phaseRow.id);
+    logActivity('Deleted task phase', `"${name}"`, whoFromSession(req));
+    res.json({ ok: true, deletedTasks: tasksInPhase.length });
+  } catch (err) {
+    console.error('DELETE /api/task-phases', err);
+    res.status(500).json({ error: err.message || 'Failed to delete phase' });
   }
 });
 
@@ -717,6 +820,16 @@ app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
 });
 
 // Static files after all API routes (avoids 404 on /api/*/export.csv)
+const SPA_TABS = ['overview', 'budget', 'tasks', 'leads', 'visa', 'files', 'admin', 'activity'];
+SPA_TABS.forEach((tab) => {
+  app.get(`/${tab}`, (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  });
+});
+app.get('/', (req, res) => {
+  res.redirect(302, '/overview');
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Error handling ───────────────────────────────────────────────────────────

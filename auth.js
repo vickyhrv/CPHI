@@ -89,6 +89,14 @@ const PUBLIC_PATHS = new Set([
   '/hrv.png',
 ]);
 
+const SPA_TABS = ['overview', 'budget', 'tasks', 'leads', 'visa', 'files', 'admin', 'activity'];
+
+function isAppPage(pathname) {
+  if (pathname === '/' || pathname === '/index.html') return true;
+  const seg = pathname.replace(/^\//, '').split('/')[0];
+  return SPA_TABS.includes(seg);
+}
+
 function isPublicPath(pathname) {
   return PUBLIC_PATHS.has(pathname);
 }
@@ -142,10 +150,11 @@ function authGate(req, res, next) {
   }
 
   const protectedAppPaths = ['/', '/index.html', '/app.js', '/styles.css'];
+  if (isAppPage(pathname) && !session) {
+    return res.redirect(302, '/login.html');
+  }
+
   if (protectedAppPaths.includes(pathname) && !session) {
-    if (pathname === '/' || pathname === '/index.html') {
-      return res.redirect(302, '/login.html');
-    }
     return res.status(401).send('Unauthorized');
   }
 

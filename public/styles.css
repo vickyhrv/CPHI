@@ -745,6 +745,26 @@ tbody select:focus {
   background: #fff;
 }
 
+.phase-delete-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #E0D5C8;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.phase-delete-btn:hover {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+
 .phase-done-count {
   font-size: 10px;
   font-weight: 600;
