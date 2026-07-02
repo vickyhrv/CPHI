@@ -382,6 +382,26 @@ main {
   flex-shrink: 0;
 }
 
+.section-hint {
+  margin: -6px 0 16px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.cell-empty {
+  color: #B7AFA4;
+  font-style: italic;
+  font-size: 12px;
+}
+
+.link-quiet {
+  color: var(--brand);
+  text-decoration: none;
+  word-break: break-all;
+}
+.link-quiet:hover { text-decoration: underline; }
+
 .head-actions {
   display: flex;
   gap: 8px;
@@ -565,6 +585,87 @@ tbody select:focus {
   padding: 10px 12px;
 }
 
+/* Budget & leads data tables */
+.data-table {
+  min-width: 960px;
+  font-size: 13px;
+}
+
+.data-table tbody tr:nth-child(even) {
+  background: #FDFAF6;
+}
+
+.budget-table { min-width: 1100px; }
+
+.budget-cat-cell { width: 120px; }
+.budget-item-cell { min-width: 160px; }
+.budget-vendor-cell { min-width: 200px; max-width: 280px; }
+.budget-num-cell { width: 100px; }
+.budget-notes-cell { min-width: 120px; }
+.budget-actions-cell { width: 40px; text-align: center; }
+
+.budget-cat-select,
+.budget-item-input,
+.budget-notes-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 12.5px;
+  background: #fff;
+  color: var(--ink);
+}
+.budget-cat-select:focus,
+.budget-item-input:focus,
+.budget-notes-input:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+.vendor-summary {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.leads-table { min-width: 1200px; }
+.leads-table .priority-badge { margin: 0; }
+
+.lead-contact-cell strong {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.lead-interest-cell,
+.lead-notes-cell {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lead-meta-cell {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+.lead-meta-cell .lead-time {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.lead-actions-cell {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.lead-email-cell { min-width: 140px; }
+
 .vendor-detail {
   font-size: 11.5px;
   color: var(--muted);
@@ -662,7 +763,7 @@ tbody select:focus {
 
 .task-col-headers {
   display: grid;
-  grid-template-columns: 22px minmax(140px, 1.4fr) 120px 130px minmax(140px, 1.25fr) 72px 32px;
+  grid-template-columns: 108px minmax(140px, 1.4fr) 120px 130px minmax(140px, 1.25fr) 72px 32px;
   gap: 10px;
   padding: 7px 16px;
   font-size: 10px;
@@ -676,7 +777,7 @@ tbody select:focus {
 
 .task-row {
   display: grid;
-  grid-template-columns: 22px minmax(140px, 1.4fr) 120px 130px minmax(140px, 1.25fr) 72px 32px;
+  grid-template-columns: 108px minmax(140px, 1.4fr) 120px 130px minmax(140px, 1.25fr) 72px 32px;
   align-items: start;
   gap: 10px;
   padding: 9px 16px;
@@ -693,6 +794,39 @@ tbody select:focus {
   cursor: pointer;
   flex-shrink: 0;
   margin-top: 8px;
+}
+
+.task-status-select {
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #fff;
+  color: var(--ink);
+}
+.task-status-select:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+.task-status-select.status-initiated {
+  background: #EEF4F8;
+  border-color: #C5D9E8;
+  color: #3D6278;
+}
+.task-status-select.status-pending {
+  background: #FFF6E8;
+  border-color: #E8D4A8;
+  color: #8A5A12;
+}
+.task-status-select.status-done {
+  background: var(--good-soft);
+  border-color: #B8DECA;
+  color: var(--good);
 }
 
 .task-text-input {
@@ -1221,6 +1355,10 @@ tbody select:focus {
   min-height: 200px;
 }
 
+.modal.modal-wide {
+  max-width: 520px;
+}
+
 /* ─────────────────────────────────────────────
    WHATSAPP BOX
 ───────────────────────────────────────────── */
@@ -1551,7 +1689,7 @@ tbody select:focus {
   .task-col-headers { display: none; }
 
   .task-row {
-    grid-template-columns: 22px 1fr 32px;
+    grid-template-columns: 90px 1fr 32px;
     padding: 10px 14px;
   }
 
@@ -1559,6 +1697,8 @@ tbody select:focus {
   .task-row .due-input,
   .task-row .notes-cell,
   .task-row .email-btn { display: none; }
+
+  .task-status-select { font-size: 10.5px; padding: 5px 4px; }
 
   .lead-list { grid-template-columns: 1fr; }
 

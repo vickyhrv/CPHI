@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   phase       TEXT NOT NULL DEFAULT 'Other',
   task        TEXT NOT NULL,
   done        INTEGER NOT NULL DEFAULT 0,
+  status      TEXT NOT NULL DEFAULT 'pending',
   owner       TEXT NOT NULL DEFAULT '',
   due_date    TEXT NOT NULL DEFAULT '',
   notes       TEXT NOT NULL DEFAULT ''
@@ -121,7 +122,7 @@ CREATE INDEX IF NOT EXISTS idx_file_assets_updated ON file_assets(updated_at DES
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 `;
 
-const MIGRATION_VERSION = 5;
+const MIGRATION_VERSION = 6;
 
 function columnExists(db, table, column) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -177,6 +178,13 @@ function applyMigration(db, version) {
       db.exec(`ALTER TABLE users ADD COLUMN can_view_budget INTEGER NOT NULL DEFAULT 0`);
     }
     db.exec(`UPDATE users SET can_view_budget = 1 WHERE role = 'admin'`);
+  }
+  if (version === 6) {
+    if (!columnExists(db, 'tasks', 'status')) {
+      db.exec(`ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'`);
+    }
+    db.exec(`UPDATE tasks SET status = 'done' WHERE done = 1`);
+    db.exec(`UPDATE tasks SET status = 'pending' WHERE done = 0 AND (status IS NULL OR status = '' OR status = 'pending')`);
   }
 }
 

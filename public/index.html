@@ -127,8 +127,8 @@
       </div>
     </div>
 
-    <div class="table-wrap">
-      <table id="budgetTable">
+    <div class="table-wrap budget-table-wrap">
+      <table id="budgetTable" class="data-table budget-table">
         <thead>
           <tr>
             <th>Category</th>
@@ -178,7 +178,28 @@
         <button class="btn-primary" id="newLeadBtn">+ New lead</button>
       </div>
     </div>
-    <div class="lead-list" id="leadList"></div>
+    <p class="section-hint">Capture booth contacts with full details — scroll horizontally on smaller screens if needed.</p>
+    <div id="leadEmpty" class="empty-state" style="display:none">🤝 No leads yet. Tap <strong>+ New lead</strong> at the booth!</div>
+    <div class="table-wrap leads-table-wrap" id="leadTableWrap">
+      <table class="data-table leads-table" id="leadTable">
+        <thead>
+          <tr>
+            <th>Priority</th>
+            <th>Contact</th>
+            <th>Company / role</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Country</th>
+            <th>Interest</th>
+            <th>Follow-up</th>
+            <th>Notes</th>
+            <th>Captured</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="leadTableBody"></tbody>
+      </table>
+    </div>
   </section>
 
   <!-- ── VISA ───────────────────────────────────────────────────────────────── -->

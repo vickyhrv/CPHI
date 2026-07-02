@@ -24,6 +24,7 @@ const {
   requireBudgetAccess,
 } = require('./auth');
 const users = require('./lib/users');
+const { normalizeStatus, isTaskDone, statusFromRow } = require('./lib/tasks');
 const { validatePasswordPolicy } = require('./lib/password');
 
 const app = express();
@@ -296,8 +297,12 @@ app.get('/api/tasks', (req, res) => res.json(store.all('tasks')));
 
 function sendTasksCsv(res) {
   const rows = store.all('tasks');
-  const headers = ['id', 'phase', 'task', 'done', 'owner', 'due_date', 'notes', 'created_at'];
-  const exportRows = rows.map((t) => ({ ...t, done: t.done ? 'yes' : 'no' }));
+  const headers = ['id', 'phase', 'task', 'status', 'done', 'owner', 'due_date', 'notes', 'created_at'];
+  const exportRows = rows.map((t) => ({
+    ...t,
+    status: statusFromRow(t),
+    done: isTaskDone(t.status) ? 'yes' : 'no',
+  }));
   sendCsv(res, 'cphi-tasks.csv', exportRows, headers);
 }
 
@@ -306,9 +311,17 @@ app.get('/api/tasks/export.csv', (req, res) => sendTasksCsv(res));
 app.get('/api/tasks/export', (req, res) => sendTasksCsv(res));
 
 app.post('/api/tasks', (req, res) => {
-  const { phase = 'Other', task, owner = '', due_date = '', notes = '', who = '' } = req.body;
+  const {
+    phase = 'Other', task, owner = '', due_date = '', notes = '',
+    status = 'initiated', who = '',
+  } = req.body;
   if (!task) return res.status(400).json({ error: 'Task is required' });
-  const row = store.insert('tasks', { phase, task, owner, due_date, notes, done: false });
+  const normalizedStatus = normalizeStatus(status, 'initiated');
+  const row = store.insert('tasks', {
+    phase, task, owner, due_date, notes,
+    status: normalizedStatus,
+    done: isTaskDone(normalizedStatus),
+  });
   logActivity('Added task', `"${task}" in ${phase}`, who);
   res.json(row);
 });
@@ -320,18 +333,29 @@ app.put('/api/tasks/:id', (req, res) => {
     const old = store.get('tasks', id);
     if (!old) return res.status(404).json({ error: 'Task not found' });
 
-    const { phase, task, done, owner, due_date, notes, who } = req.body || {};
+    const { phase, task, done, status, owner, due_date, notes, who } = req.body || {};
+    let nextStatus = status !== undefined ? normalizeStatus(status) : statusFromRow(old);
+    if (done !== undefined && status === undefined) {
+      nextStatus = done ? 'done' : (old.status === 'done' ? 'pending' : statusFromRow(old));
+    }
     const updated = store.update('tasks', id, {
       phase: phase ?? old.phase,
       task: task ?? old.task,
-      done: done !== undefined ? !!done : !!old.done,
+      status: nextStatus,
+      done: isTaskDone(nextStatus),
       owner: owner ?? old.owner ?? '',
       due_date: due_date ?? old.due_date ?? '',
       notes: notes !== undefined ? String(notes) : (old.notes ?? ''),
     });
     if (!updated) return res.status(404).json({ error: 'Task not found' });
-    if (!old.done && updated.done) {
+    const wasDone = isTaskDone(statusFromRow(old));
+    const nowDone = isTaskDone(updated.status);
+    if (!wasDone && nowDone) {
       logActivity('Completed task', `"${updated.task}"`, who || '');
+    } else if (wasDone && !nowDone) {
+      logActivity('Reopened task', `"${updated.task}" → ${updated.status}`, who || '');
+    } else if (status !== undefined && statusFromRow(old) !== updated.status) {
+      logActivity('Updated task status', `"${updated.task}" → ${updated.status}`, who || '');
     }
     res.json(updated);
   } catch (err) {

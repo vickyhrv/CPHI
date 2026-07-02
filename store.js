@@ -4,6 +4,7 @@ const { db, withTransaction } = require('./db/database');
 const { runMigrations } = require('./db/schema');
 const { migrateFromJsonIfNeeded } = require('./db/migrate-json');
 const { migrateUsersIfNeeded } = require('./db/migrate-users');
+const { normalizeStatus, isTaskDone, statusFromRow } = require('./lib/tasks');
 
 runMigrations(db);
 migrateFromJsonIfNeeded();
@@ -37,7 +38,7 @@ const TABLE_COLUMNS = {
     'category', 'item', 'last_year', 'this_year_est', 'actual', 'notes',
     'vendor', 'poc_name', 'poc_email', 'poc_phone', 'merchandise_notes',
   ],
-  tasks: ['phase', 'task', 'done', 'owner', 'due_date', 'notes'],
+  tasks: ['phase', 'task', 'done', 'status', 'owner', 'due_date', 'notes'],
   leads: [
     'name', 'company', 'role', 'email', 'phone', 'country',
     'interest', 'priority', 'notes', 'captured_by', 'follow_up_date',
@@ -71,12 +72,20 @@ function normalizeOut(table, row) {
       if (key in out) out[key] = !!out[key];
     }
   }
-  if (table === 'tasks' && out.notes == null) out.notes = '';
+  if (table === 'tasks') {
+    if (out.notes == null) out.notes = '';
+    out.status = statusFromRow(out);
+    out.done = isTaskDone(out.status);
+  }
   return out;
 }
 
 function normalizeIn(table, data) {
   const out = { ...data };
+  if (table === 'tasks' && 'status' in out) {
+    out.status = normalizeStatus(out.status);
+    out.done = isTaskDone(out.status) ? 1 : 0;
+  }
   const bools = BOOLEAN_FIELDS[table];
   if (bools) {
     for (const key of bools) {

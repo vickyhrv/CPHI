@@ -230,7 +230,28 @@ document.getElementById('convertBtn').addEventListener('click', async () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // BUDGET
 // ═══════════════════════════════════════════════════════════════════════════════
+const BUDGET_CATEGORIES = ['Booth', 'Hospitality', 'Marketing', 'Logistics', 'Travel', 'Other'];
+
 let budgetData = [];
+
+function vendorSummary(row) {
+  const bits = [];
+  if (row.vendor) bits.push(row.vendor);
+  if (row.poc_name) bits.push(row.poc_name);
+  if (row.poc_email) bits.push(`✉ ${row.poc_email}`);
+  if (row.poc_phone) bits.push(`☎ ${row.poc_phone}`);
+  return bits.join(' · ');
+}
+
+function cellOrEmpty(value, label = '—') {
+  const v = String(value || '').trim();
+  return v ? esc(v) : `<span class="cell-empty">${label}</span>`;
+}
+
+function categoryOptions(selected) {
+  const cats = [...new Set([...BUDGET_CATEGORIES, ...budgetData.map((r) => r.category)].filter(Boolean))];
+  return cats.map((c) => `<option value="${esc(c)}" ${c === selected ? 'selected' : ''}>${esc(c)}</option>`).join('');
+}
 
 async function loadBudget() {
   budgetData = await api('/api/budget');
@@ -256,43 +277,28 @@ function renderBudget() {
   const body = document.getElementById('budgetBody');
   body.innerHTML = '';
 
-  budgetData.forEach(row => {
+  budgetData.forEach((row) => {
     const tr = document.createElement('tr');
     tr.dataset.id = row.id;
+    const summary = vendorSummary(row);
     tr.innerHTML = `
-      <td><input value="${esc(row.category)}" data-field="category" style="width:90px"/></td>
-      <td><input value="${esc(row.item)}" data-field="item" /></td>
-      <td>
-        <div class="vendor-detail">
-          <button type="button" class="vendor-expand-btn" data-id="${row.id}">
-            ${row.vendor ? esc(row.vendor) : '+ vendor / POC'}
-          </button>
-          <div class="vendor-fields" id="vf_${row.id}">
-            <input placeholder="Vendor name" value="${esc(row.vendor||'')}" data-field="vendor" />
-            <input placeholder="POC name" value="${esc(row.poc_name||'')}" data-field="poc_name" />
-            <input placeholder="POC email" value="${esc(row.poc_email||'')}" data-field="poc_email" />
-            <input placeholder="POC phone" value="${esc(row.poc_phone||'')}" data-field="poc_phone" />
-            <input placeholder="Merchandise / item notes" value="${esc(row.merchandise_notes||'')}" data-field="merchandise_notes" />
-          </div>
-        </div>
+      <td class="budget-cat-cell">
+        <select class="budget-cat-select" data-field="category">${categoryOptions(row.category)}</select>
       </td>
-      <td><input class="num-input" type="number" value="${row.last_year||0}" data-field="last_year" style="width:80px"/></td>
-      <td><input class="num-input" type="number" value="${row.this_year_est||0}" data-field="this_year_est" style="width:80px"/></td>
-      <td><input class="num-input" type="number" value="${row.actual||0}" data-field="actual" style="width:80px"/></td>
-      <td><input value="${esc(row.notes||'')}" data-field="notes" /></td>
-      <td><button type="button" class="row-delete" data-row-id="${row.id}" title="Delete this line only">✕</button></td>
+      <td class="budget-item-cell"><input class="budget-item-input" value="${esc(row.item)}" data-field="item" /></td>
+      <td class="budget-vendor-cell">
+        <div class="vendor-summary">${summary || '<span class="cell-empty">Add vendor / POC</span>'}</div>
+        <button type="button" class="btn-ghost btn-sm vendor-edit-btn" data-row-id="${row.id}">Edit vendor</button>
+      </td>
+      <td class="budget-num-cell"><input class="num-input" type="number" min="0" step="1" value="${row.last_year || 0}" data-field="last_year" /></td>
+      <td class="budget-num-cell"><input class="num-input" type="number" min="0" step="1" value="${row.this_year_est || 0}" data-field="this_year_est" /></td>
+      <td class="budget-num-cell"><input class="num-input" type="number" min="0" step="1" value="${row.actual || 0}" data-field="actual" /></td>
+      <td class="budget-notes-cell"><input class="budget-notes-input" value="${esc(row.notes || '')}" data-field="notes" placeholder="Notes" /></td>
+      <td class="budget-actions-cell"><button type="button" class="row-delete" data-row-id="${row.id}" title="Delete this line only">✕</button></td>
     `;
 
-    // Vendor expand toggle
-    tr.querySelector('.vendor-expand-btn').addEventListener('click', () => {
-      const vf = document.getElementById(`vf_${row.id}`);
-      vf.classList.toggle('open');
-    });
-
-    // Save any input on change
-    tr.querySelectorAll('input').forEach(inp => {
-      const rowId = row.id;
-      inp.addEventListener('change', () => saveBudgetRow(rowId, inp.dataset.field, inp.value));
+    tr.querySelectorAll('input, select').forEach((inp) => {
+      inp.addEventListener('change', () => saveBudgetRow(row.id, inp.dataset.field, inp.value));
     });
 
     body.appendChild(tr);
@@ -345,6 +351,13 @@ async function deleteBudgetRow(id) {
 }
 
 document.getElementById('budgetBody').addEventListener('click', (e) => {
+  const vendorBtn = e.target.closest('.vendor-edit-btn[data-row-id]');
+  if (vendorBtn) {
+    e.preventDefault();
+    const row = budgetData.find((r) => String(r.id) === String(vendorBtn.dataset.rowId));
+    if (row) openModal('budgetVendor', { id: row.id });
+    return;
+  }
   const btn = e.target.closest('button.row-delete[data-row-id]');
   if (!btn) return;
   e.preventDefault();
@@ -370,16 +383,36 @@ document.getElementById('exportBudgetBtn').addEventListener('click', () => expor
 // ═══════════════════════════════════════════════════════════════════════════════
 // TASKS
 // ═══════════════════════════════════════════════════════════════════════════════
+const TASK_STATUSES = ['initiated', 'pending', 'done'];
+const TASK_STATUS_LABELS = { initiated: 'Initiated', pending: 'Pending', done: 'Done' };
+
+function taskStatusOf(row) {
+  if (row?.status && TASK_STATUSES.includes(row.status)) return row.status;
+  return row?.done ? 'done' : 'pending';
+}
+
+function taskIsDone(row) {
+  return taskStatusOf(row) === 'done';
+}
+
+function taskStatusOptions(selected) {
+  return TASK_STATUSES.map((s) =>
+    `<option value="${s}" ${s === selected ? 'selected' : ''}>${TASK_STATUS_LABELS[s]}</option>`
+  ).join('');
+}
+
 let taskData = [];
 let taskPhaseNames = [];
 let taskListenersBound = false;
 const taskSaveTimers = new Map();
 
 function taskPutBody(row) {
+  const status = taskStatusOf(row);
   return {
     phase: row.phase ?? '',
     task: row.task ?? '',
-    done: !!row.done,
+    status,
+    done: status === 'done',
     owner: row.owner ?? '',
     due_date: row.due_date ?? '',
     notes: row.notes ?? '',
@@ -409,17 +442,16 @@ function bindTaskListeners() {
   if (!container) return;
 
   container.addEventListener('change', (e) => {
-    const inp = e.target;
-    if (!(inp instanceof HTMLInputElement)) return;
-    if (inp.classList.contains('notes-input')) return;
-    const rowEl = inp.closest('.task-row');
+    const el = e.target;
+    if (el.classList.contains('notes-input')) return;
+    const rowEl = el.closest('.task-row');
     const rowId = rowEl?.dataset?.rowId;
     if (!rowId) return;
 
-    if (inp.type === 'checkbox') saveTaskRow(rowId, 'done', inp.checked);
-    else if (inp.classList.contains('task-text-input')) saveTaskRow(rowId, 'task', inp.value);
-    else if (inp.classList.contains('owner-input')) saveTaskRow(rowId, 'owner', inp.value);
-    else if (inp.classList.contains('due-input')) saveTaskRow(rowId, 'due_date', inp.value);
+    if (el.classList.contains('task-status-select')) saveTaskRow(rowId, 'status', el.value);
+    else if (el instanceof HTMLInputElement && el.classList.contains('task-text-input')) saveTaskRow(rowId, 'task', el.value);
+    else if (el instanceof HTMLInputElement && el.classList.contains('owner-input')) saveTaskRow(rowId, 'owner', el.value);
+    else if (el instanceof HTMLInputElement && el.classList.contains('due-input')) saveTaskRow(rowId, 'due_date', el.value);
   });
 
   container.addEventListener('input', (e) => {
@@ -478,8 +510,18 @@ function applyBudgetVisibility(canView) {
 }
 
 function refreshTaskStats() {
-  const doneCount = taskData.filter((t) => t.done).length;
+  const doneCount = taskData.filter((t) => taskIsDone(t)).length;
   document.getElementById('statTasks').textContent = `${doneCount}/${taskData.length}`;
+}
+
+function applyTaskRowStatus(rowEl, status) {
+  if (!rowEl) return;
+  rowEl.classList.toggle('task-done', status === 'done');
+  const sel = rowEl.querySelector('.task-status-select');
+  if (sel) {
+    sel.value = status;
+    sel.className = `task-status-select status-${status}`;
+  }
 }
 
 /** Same pattern as saveBudgetRow — update local row, PUT full row to API */
@@ -488,16 +530,21 @@ async function saveTaskRow(id, field, value) {
   if (!numId) return;
   const row = taskData.find((t) => parseRowId(t.id) === numId);
   if (!row) return;
-  if (field !== 'done' && String(row[field] ?? '') === String(value)) return;
-  row[field] = value;
-  if (field === 'done') {
+  if (field !== 'status' && String(row[field] ?? '') === String(value)) return;
+  if (field === 'status') {
+    row.status = value;
+    row.done = value === 'done';
+  } else {
+    row[field] = value;
+  }
+  if (field === 'status') {
     const el = document.querySelector(`.task-row[data-row-id="${row.id}"]`);
-    if (el) el.classList.toggle('task-done', !!value);
+    applyTaskRowStatus(el, value);
   }
   refreshTaskStats();
   try {
     const payload = taskPutBody(row);
-    payload[field] = field === 'done' ? !!value : value;
+    if (field !== 'status') payload[field] = value;
     const updated = await api(`/api/tasks/${numId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -505,7 +552,7 @@ async function saveTaskRow(id, field, value) {
     });
     Object.assign(row, updated);
     clearApiError();
-    if (field === 'done') renderTasks();
+    if (field === 'status') renderTasks();
   } catch (err) {
     showApiError(err);
     await loadTasks();
@@ -528,7 +575,7 @@ function renderTasks() {
 
   phases.forEach((phase) => {
     const items = taskData.filter((t) => t.phase === phase);
-    const phaseDone = items.filter((t) => t.done).length;
+    const phaseDone = items.filter((t) => taskIsDone(t)).length;
     doneCount += phaseDone;
 
     const group = document.createElement('div');
@@ -543,7 +590,7 @@ function renderTasks() {
         </div>
       </div>
       <div class="task-col-headers">
-        <span></span><span>Task</span><span>Owner</span><span>Due date</span><span>Notes</span><span>Actions</span><span></span>
+        <span>Status</span><span>Task</span><span>Owner</span><span>Due date</span><span>Notes</span><span>Actions</span><span></span>
       </div>
     `;
 
@@ -555,13 +602,14 @@ function renderTasks() {
     }
 
     items.forEach((t) => {
+      const status = taskStatusOf(t);
       const row = document.createElement('div');
-      row.className = 'task-row' + (t.done ? ' task-done' : '');
+      row.className = 'task-row' + (status === 'done' ? ' task-done' : '');
       row.dataset.rowId = t.id;
-      const overdue = !t.done && isOverdue(t.due_date);
+      const overdue = status !== 'done' && isOverdue(t.due_date);
 
       row.innerHTML = `
-        <input type="checkbox" ${t.done ? 'checked' : ''} title="Mark complete" />
+        <select class="task-status-select status-${status}" aria-label="Task status">${taskStatusOptions(status)}</select>
         <input class="task-text-input" value="${esc(t.task)}" />
         <input class="owner-input" placeholder="Owner" value="${esc(t.owner || '')}" />
         <input class="due-input ${overdue ? 'overdue' : ''}" type="date" value="${esc(t.due_date || '')}" title="${overdue ? 'Overdue!' : 'Due date'}" />
@@ -586,6 +634,10 @@ function renderTasks() {
         const owner = t.owner || '';
         if (owner.includes('@')) openEmailFollowUp(t);
         else openWhatsAppFollowUp(t);
+      });
+
+      row.querySelector('.task-status-select').addEventListener('change', (e) => {
+        e.target.className = `task-status-select status-${e.target.value}`;
       });
 
       group.appendChild(row);
@@ -646,11 +698,12 @@ document.getElementById('exportTasksBtn').addEventListener('click', () => export
 
 // WhatsApp tasks summary
 document.getElementById('whatsappTasksBtn').addEventListener('click', () => {
-  const pending = taskData.filter(t => !t.done);
+  const pending = taskData.filter(t => !taskIsDone(t));
   const overdue = pending.filter(t => isOverdue(t.due_date));
   let msg = `🦜 *HRV CPHI Milan 2026 — Task Update*\n\n`;
-  msg += `✅ Done: ${taskData.filter(t=>t.done).length}/${taskData.length}\n`;
-  msg += `⏳ Pending: ${pending.length}\n`;
+  msg += `✅ Done: ${taskData.filter(t => taskIsDone(t)).length}/${taskData.length}\n`;
+  msg += `🟡 Pending: ${taskData.filter(t => taskStatusOf(t) === 'pending').length}\n`;
+  msg += `🔵 Initiated: ${taskData.filter(t => taskStatusOf(t) === 'initiated').length}\n`;
   if (overdue.length) msg += `🚨 Overdue: ${overdue.length}\n`;
   msg += `\n*Pending tasks:*\n`;
   pending.slice(0, 10).forEach(t => {
@@ -671,43 +724,37 @@ async function loadLeads() {
 }
 
 function renderLeads(leads) {
-  const list = document.getElementById('leadList');
+  const empty = document.getElementById('leadEmpty');
+  const wrap = document.getElementById('leadTableWrap');
+  const body = document.getElementById('leadTableBody');
   if (!leads.length) {
-    list.innerHTML = '<div class="empty-state">🤝 No leads yet. Tap "+ New lead" at the booth!</div>';
+    empty.style.display = 'block';
+    wrap.style.display = 'none';
     return;
   }
-  list.innerHTML = '';
-  leads.forEach(l => {
-    const card = document.createElement('div');
-    card.className = 'lead-card';
-    card.innerHTML = `
-      <button type="button" class="row-delete" data-row-id="${l.id}" title="Delete this lead only">✕</button>
-      <span class="priority-badge priority-${esc(l.priority)}">${esc(l.priority)}</span>
-      <div class="lead-name">${esc(l.name)}</div>
-      <div class="lead-company">${esc(l.role)}${l.role && l.company ? ' · ' : ''}${esc(l.company)}</div>
-      ${l.email    ? `<div class="lead-field"><span>Email:</span> ${esc(l.email)}</div>` : ''}
-      ${l.phone    ? `<div class="lead-field"><span>Phone:</span> ${esc(l.phone)}</div>` : ''}
-      ${l.country  ? `<div class="lead-field"><span>Country:</span> ${esc(l.country)}</div>` : ''}
-      ${l.interest ? `<div class="lead-field"><span>Interest:</span> ${esc(l.interest)}</div>` : ''}
-      ${l.notes    ? `<div class="lead-field"><span>Notes:</span> ${esc(l.notes)}</div>` : ''}
-      ${l.follow_up_date ? `<div class="lead-followup">📅 Follow up: ${fmtDate(l.follow_up_date)}</div>` : ''}
-      <div class="lead-field" style="margin-top:6px"><span>By:</span> ${esc(l.captured_by||'—')} · <span>${timeAgo(l.created_at)}</span></div>
-      ${l.email ? `<button type="button" class="btn-ghost" style="margin-top:8px;padding:4px 0" data-email="${esc(l.email)}" data-name="${esc(l.name)}">📧 Follow-up email</button>` : ''}
+  empty.style.display = 'none';
+  wrap.style.display = '';
+  body.innerHTML = '';
+
+  leads.forEach((l) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="priority-badge priority-${esc(l.priority || 'Medium')}">${esc(l.priority || 'Medium')}</span></td>
+      <td class="lead-contact-cell"><strong>${esc(l.name)}</strong></td>
+      <td>${cellOrEmpty([l.company, l.role].filter(Boolean).join(' · '))}</td>
+      <td class="lead-email-cell">${l.email ? `<a href="mailto:${esc(l.email)}" class="link-quiet">${esc(l.email)}</a>` : cellOrEmpty('')}</td>
+      <td>${cellOrEmpty(l.phone)}</td>
+      <td>${cellOrEmpty(l.country)}</td>
+      <td class="lead-interest-cell">${cellOrEmpty(l.interest)}</td>
+      <td>${l.follow_up_date ? esc(fmtDate(l.follow_up_date)) : cellOrEmpty('')}</td>
+      <td class="lead-notes-cell" title="${esc(l.notes || '')}">${cellOrEmpty(l.notes)}</td>
+      <td class="lead-meta-cell"><span>${esc(l.captured_by || '—')}</span><span class="lead-time">${timeAgo(l.created_at)}</span></td>
+      <td class="lead-actions-cell">
+        ${l.email ? `<button type="button" class="btn-ghost btn-sm lead-email-btn" data-id="${l.id}" title="Follow-up email">📧</button>` : ''}
+        <button type="button" class="row-delete" data-row-id="${l.id}" title="Delete lead">✕</button>
+      </td>
     `;
-    const emailBtn = card.querySelector('[data-email]');
-    if (emailBtn) {
-      emailBtn.addEventListener('click', () => {
-        const subject = encodeURIComponent(`Following up from CPHI Milan 2026 — HRV Pharma`);
-        const body = encodeURIComponent(
-          `Dear ${l.name},\n\nIt was great meeting you at our booth at CPHI Worldwide Milan 2026.\n\n` +
-          `${l.interest ? `We discussed your interest in ${l.interest}. ` : ''}` +
-          `I'd love to continue the conversation and explore how HRV Pharma can support your requirements.\n\n` +
-          `Please feel free to reach out at your convenience.\n\nBest regards,\n${currentUser || 'HRV Pharma Team'}`
-        );
-        window.open(`mailto:${l.email}?subject=${subject}&body=${body}`);
-      });
-    }
-    list.appendChild(card);
+    body.appendChild(tr);
   });
 }
 
@@ -734,7 +781,22 @@ async function deleteLead(id) {
   }
 }
 
-document.getElementById('leadList').addEventListener('click', (e) => {
+document.getElementById('leadTableBody').addEventListener('click', (e) => {
+  const emailBtn = e.target.closest('.lead-email-btn[data-id]');
+  if (emailBtn) {
+    e.preventDefault();
+    const l = leadData.find((x) => String(x.id) === String(emailBtn.dataset.id));
+    if (!l?.email) return;
+    const subject = encodeURIComponent('Following up from CPHI Milan 2026 — HRV Pharma');
+    const body = encodeURIComponent(
+      `Dear ${l.name},\n\nIt was great meeting you at our booth at CPHI Worldwide Milan 2026.\n\n` +
+      `${l.interest ? `We discussed your interest in ${l.interest}. ` : ''}` +
+      `I'd love to continue the conversation and explore how HRV Pharma can support your requirements.\n\n` +
+      `Please feel free to reach out at your convenience.\n\nBest regards,\n${currentUser || 'HRV Pharma Team'}`
+    );
+    window.open(`mailto:${l.email}?subject=${subject}&body=${body}`);
+    return;
+  }
   const btn = e.target.closest('button.row-delete[data-row-id]');
   if (!btn) return;
   e.preventDefault();
@@ -1266,6 +1328,7 @@ const ACTION_ICONS = {
   'Reset user password': '🔑', 'Deleted user': '🗑️', 'Changed own password': '🔒',
   'Granted budget access': '💰', 'Revoked budget access': '🚫',
   'Added task phase': '📂',
+  'Updated task status': '🔄', 'Reopened task': '↩️',
 };
 
 async function loadActivity() {
@@ -1304,7 +1367,10 @@ document.getElementById('exportActivityBtn').addEventListener('click', () => exp
 const backdrop = document.getElementById('modalBackdrop');
 const modal    = document.getElementById('modal');
 
-function closeModal() { backdrop.classList.remove('open'); }
+function closeModal() {
+  backdrop.classList.remove('open');
+  modal.classList.remove('modal-wide');
+}
 backdrop.addEventListener('click', e => { if (e.target === backdrop) closeModal(); });
 
 function openEmailFollowUp(task) {
@@ -1395,6 +1461,9 @@ function openModal(type, data) {
         <div class="field-group"><label>Owner (name or email)</label><input id="f_owner" /></div>
         <div class="field-group"><label>Due date</label><input id="f_due" type="date" /></div>
       </div>
+      <div class="field-group"><label>Status</label>
+        <select id="f_status">${taskStatusOptions('initiated')}</select>
+      </div>
       <div class="field-group"><label>Notes</label><textarea id="f_notes" class="modal-textarea" rows="4" placeholder="Optional notes — supports multiple lines"></textarea></div>
       <div class="modal-actions">
         <button class="btn-secondary" id="cancelBtn">Cancel</button>
@@ -1413,6 +1482,7 @@ function openModal(type, data) {
           owner: modal.querySelector('#f_owner').value,
           due_date: modal.querySelector('#f_due').value,
           notes: modal.querySelector('#f_notes').value,
+          status: modal.querySelector('#f_status').value,
           who: currentUser,
         }),
       });
@@ -1559,6 +1629,48 @@ function openModal(type, data) {
         closeModal();
         clearApiError();
         alert(`Password reset for ${data.username}`);
+      } catch (err) {
+        showApiError(err);
+      }
+    });
+
+  } else if (type === 'budgetVendor') {
+    const row = budgetData.find((r) => parseRowId(r.id) === parseRowId(data.id));
+    if (!row) return;
+    modal.classList.add('modal-wide');
+    modal.innerHTML = `
+      <h3>Vendor &amp; POC</h3>
+      <p class="modal-hint">For <strong>${esc(row.item)}</strong> (${esc(row.category)})</p>
+      <div class="field-group"><label>Vendor name</label><input id="f_vendor" value="${esc(row.vendor || '')}" /></div>
+      <div class="field-row">
+        <div class="field-group"><label>POC name</label><input id="f_poc_name" value="${esc(row.poc_name || '')}" /></div>
+        <div class="field-group"><label>POC phone</label><input id="f_poc_phone" value="${esc(row.poc_phone || '')}" /></div>
+      </div>
+      <div class="field-group"><label>POC email</label><input id="f_poc_email" type="email" value="${esc(row.poc_email || '')}" /></div>
+      <div class="field-group"><label>Merchandise / item notes</label><textarea id="f_merch" class="modal-textarea" rows="3">${esc(row.merchandise_notes || '')}</textarea></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelBtn">Cancel</button>
+        <button class="btn-primary" id="saveBtn">Save vendor</button>
+      </div>
+    `;
+    modal.querySelector('#saveBtn').addEventListener('click', async () => {
+      const fields = {
+        vendor: modal.querySelector('#f_vendor').value,
+        poc_name: modal.querySelector('#f_poc_name').value,
+        poc_phone: modal.querySelector('#f_poc_phone').value,
+        poc_email: modal.querySelector('#f_poc_email').value,
+        merchandise_notes: modal.querySelector('#f_merch').value,
+      };
+      Object.assign(row, fields);
+      try {
+        await api(`/api/budget/${parseRowId(row.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(row),
+        });
+        closeModal();
+        renderBudget();
+        clearApiError();
       } catch (err) {
         showApiError(err);
       }
