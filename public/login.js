@@ -57,6 +57,14 @@ form.addEventListener('submit', async (e) => {
     if (data.displayName) {
       localStorage.setItem('cphi_user', data.displayName);
     }
+    if (data.isAdmin) {
+      localStorage.setItem('cphi_is_admin', '1');
+    } else {
+      localStorage.removeItem('cphi_is_admin');
+    }
+    if (data.role) {
+      localStorage.setItem('cphi_role', data.role);
+    }
     window.location.replace('/');
   } catch {
     errorEl.textContent = 'Could not reach the server. Make sure npm start is running.';

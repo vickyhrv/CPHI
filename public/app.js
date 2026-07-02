@@ -443,13 +443,24 @@ function autoResizeNotes(el) {
 }
 
 async function loadTasks() {
-  const [tasks, phases] = await Promise.all([
-    api('/api/tasks'),
-    api('/api/task-phases'),
-  ]);
+  const tasks = await api('/api/tasks');
   taskData = tasks;
+  let phases = [];
+  try {
+    phases = await api('/api/task-phases');
+  } catch (err) {
+    console.warn('task-phases API unavailable, using phases from tasks', err.message);
+    phases = [...new Set(tasks.map((t) => t.phase).filter(Boolean))];
+  }
   taskPhaseNames = phases;
   renderTasks();
+}
+
+function showAdminTabIfAllowed(isAdmin) {
+  const adminTab = document.getElementById('adminTabBtn');
+  if (!adminTab) return;
+  const allowed = isAdmin || localStorage.getItem('cphi_is_admin') === '1';
+  adminTab.style.display = allowed ? '' : 'none';
 }
 
 function refreshTaskStats() {
@@ -1619,11 +1630,20 @@ bindFileListeners();
 
 document.getElementById('logoutBtn').addEventListener('click', async () => {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  localStorage.removeItem('cphi_is_admin');
+  localStorage.removeItem('cphi_role');
   window.location.href = '/login.html';
 });
 
 async function bootstrapApp() {
-  const me = await api('/api/auth/me');
+  showAdminTabIfAllowed(false);
+  let me = { authenticated: false };
+  try {
+    me = await api('/api/auth/me');
+  } catch (err) {
+    showApiError(err);
+    return;
+  }
   if (me.authenticated) {
     currentSession = me;
     if (me.displayName) {
@@ -1632,15 +1652,18 @@ async function bootstrapApp() {
       const chip = document.getElementById('userChip');
       if (chip) chip.textContent = '👤 ' + me.displayName;
     }
+    if (me.isAdmin) localStorage.setItem('cphi_is_admin', '1');
+    else localStorage.removeItem('cphi_is_admin');
     document.getElementById('identityBanner').style.display = 'none';
-    if (me.isAdmin) {
-      const adminTab = document.getElementById('adminTabBtn');
-      if (adminTab) adminTab.style.display = '';
-    }
+    showAdminTabIfAllowed(me.isAdmin);
   }
-  await loadSettings();
-  await Promise.all([loadBudget(), loadTasks(), loadLeads(), loadTravelers()]);
-  clearApiError();
+  try {
+    await loadSettings();
+    await Promise.all([loadBudget(), loadTasks(), loadLeads(), loadTravelers()]);
+    clearApiError();
+  } catch (err) {
+    showApiError(err);
+  }
 }
 
 bootstrapApp().catch(showApiError);
