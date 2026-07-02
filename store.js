@@ -3,9 +3,11 @@
 const { db, withTransaction } = require('./db/database');
 const { runMigrations } = require('./db/schema');
 const { migrateFromJsonIfNeeded } = require('./db/migrate-json');
+const { migrateUsersIfNeeded } = require('./db/migrate-users');
 
 runMigrations(db);
 migrateFromJsonIfNeeded();
+migrateUsersIfNeeded();
 
 const ALLOWED_TABLES = new Set([
   'budget_items',
@@ -15,6 +17,7 @@ const ALLOWED_TABLES = new Set([
   'travelers',
   'settings',
   'file_assets',
+  'task_phases',
 ]);
 
 const BOOLEAN_FIELDS = {
@@ -50,6 +53,7 @@ const TABLE_COLUMNS = {
     'original_name', 'stored_name', 'mime_type', 'size_bytes',
     'comment', 'uploaded_by', 'updated_at',
   ],
+  task_phases: ['name', 'sort_order'],
 };
 
 function assertTable(table) {
@@ -94,7 +98,11 @@ function pickColumns(table, data) {
 const store = {
   all(table) {
     assertTable(table);
-    const order = table === 'file_assets' ? 'ORDER BY updated_at DESC' : 'ORDER BY id';
+    const order = table === 'file_assets'
+      ? 'ORDER BY updated_at DESC'
+      : table === 'task_phases'
+        ? 'ORDER BY sort_order ASC, name ASC'
+        : 'ORDER BY id';
     const rows = db.prepare(`SELECT * FROM ${table} ${order}`).all();
     return rows.map((r) => normalizeOut(table, r));
   },

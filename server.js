@@ -20,7 +20,10 @@ const {
   sessionCookie,
   clearSessionCookie,
   authGate,
+  requireAdmin,
 } = require('./auth');
+const users = require('./lib/users');
+const { validatePasswordPolicy } = require('./lib/password');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -95,7 +98,13 @@ app.post('/api/auth/login', (req, res) => {
   }
   const token = createSession(user);
   res.setHeader('Set-Cookie', sessionCookie(token, req));
-  res.json({ ok: true, username: user.username, displayName: user.displayName });
+  res.json({
+    ok: true,
+    username: user.username,
+    displayName: user.display_name,
+    role: user.role,
+    isAdmin: user.role === 'admin',
+  });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -113,7 +122,24 @@ app.get('/api/auth/me', (req, res) => {
     authenticated: true,
     username: session.username,
     displayName: session.displayName,
+    role: session.role,
+    isAdmin: session.role === 'admin',
   });
+});
+
+app.post('/api/auth/change-password', (req, res) => {
+  try {
+    const session = getSession(req);
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+    const { currentPassword, newPassword } = req.body || {};
+    const policyErr = validatePasswordPolicy(newPassword);
+    if (policyErr) return res.status(400).json({ error: policyErr });
+    users.changeOwnPassword(session.username, currentPassword, newPassword);
+    logActivity('Changed own password', session.username, session.displayName);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Could not change password' });
+  }
 });
 
 app.use(authGate);
@@ -162,6 +188,24 @@ function whoFromReq(req) {
 
 function whoFromSession(req) {
   return req.user?.displayName || whoFromReq(req) || 'Unknown';
+}
+
+function getMergedPhases() {
+  const ordered = [];
+  const seen = new Set();
+  for (const p of store.all('task_phases')) {
+    const name = String(p.name || '').trim();
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    ordered.push(name);
+  }
+  for (const t of store.all('tasks')) {
+    const name = String(t.phase || '').trim();
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    ordered.push(name);
+  }
+  return ordered;
 }
 
 const fileUpload = multer({
@@ -535,6 +579,107 @@ app.delete('/api/files/:id', (req, res) => {
   } catch (err) {
     console.error('DELETE /api/files/:id', err);
     res.status(500).json({ error: 'Failed to delete file' });
+  }
+});
+
+// ─── Task phases API ──────────────────────────────────────────────────────────
+app.get('/api/task-phases', (req, res) => {
+  res.json(getMergedPhases());
+});
+
+app.post('/api/task-phases', (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Phase name is required' });
+    const existing = store.all('task_phases').find(
+      (p) => p.name.toLowerCase() === name.toLowerCase()
+    );
+    if (existing) return res.json({ name: existing.name, id: existing.id });
+    const phases = store.all('task_phases');
+    const maxSort = phases.reduce((m, p) => Math.max(m, p.sort_order || 0), 0);
+    const row = store.insert('task_phases', { name, sort_order: maxSort + 1 });
+    logActivity('Added task phase', `"${name}"`, whoFromSession(req));
+    res.json(row);
+  } catch (err) {
+    console.error('POST /api/task-phases', err);
+    res.status(500).json({ error: err.message || 'Failed to add phase' });
+  }
+});
+
+// ─── Admin users API ──────────────────────────────────────────────────────────
+app.get('/api/admin/users', requireAdmin, (req, res) => {
+  try {
+    res.json(users.listUsers());
+  } catch (err) {
+    console.error('GET /api/admin/users', err);
+    res.status(500).json({ error: 'Failed to load users' });
+  }
+});
+
+app.post('/api/admin/users', requireAdmin, (req, res) => {
+  try {
+    const { username, displayName, password, role = 'user' } = req.body || {};
+    const policyErr = validatePasswordPolicy(password);
+    if (policyErr) return res.status(400).json({ error: policyErr });
+    const row = users.createUser({ username, displayName, password, role });
+    logActivity('Created user', `${row.username} (${row.role})`, whoFromSession(req));
+    res.json(row);
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Failed to create user' });
+  }
+});
+
+app.put('/api/admin/users/:id', requireAdmin, (req, res) => {
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid user id' });
+    const { displayName, role, enabled } = req.body || {};
+    const updated = users.updateUser(id, { displayName, role, enabled });
+    if (!updated) return res.status(404).json({ error: 'User not found' });
+    if (enabled === false) {
+      logActivity('Disabled user', updated.username, whoFromSession(req));
+    } else if (enabled === true) {
+      logActivity('Enabled user', updated.username, whoFromSession(req));
+    } else {
+      logActivity('Updated user', updated.username, whoFromSession(req));
+    }
+    res.json(updated);
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Failed to update user' });
+  }
+});
+
+app.put('/api/admin/users/:id/password', requireAdmin, (req, res) => {
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid user id' });
+    const { password } = req.body || {};
+    const policyErr = validatePasswordPolicy(password);
+    if (policyErr) return res.status(400).json({ error: policyErr });
+    const target = users.getById(id);
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    users.setPassword(id, password);
+    logActivity('Reset user password', target.username, whoFromSession(req));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Failed to reset password' });
+  }
+});
+
+app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid user id' });
+    if (req.user.userId === id) {
+      return res.status(400).json({ error: 'You cannot delete your own account' });
+    }
+    const target = users.getById(id);
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    users.deleteUser(id);
+    logActivity('Deleted user', target.username, whoFromSession(req));
+    res.json({ ok: true, deletedId: id });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Failed to delete user' });
   }
 });
 

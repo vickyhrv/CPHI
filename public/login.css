@@ -137,66 +137,6 @@ body {
   object-position: center;
 }
 
-.hero-image-chip {
-  position: absolute;
-  bottom: 10px;
-  left: 10px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  background: var(--chip-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255,255,255,0.6);
-  border-radius: 7px;
-  padding: 5px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--ink);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-  max-width: calc(100% - 20px);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.chip-icon { font-size: 12px; line-height: 1; }
-
-/* Stats — slim row, no extra block below image */
-.hero-stats {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.hero-stat {
-  flex: 1;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 8px 12px;
-  text-align: center;
-}
-
-.hero-stat-num {
-  display: block;
-  font-family: 'Fraunces', Georgia, serif;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--ink);
-  line-height: 1.2;
-}
-
-.hero-stat-label {
-  display: block;
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-top: 1px;
-}
-
 /* ── RIGHT login panel ── */
 .login-panel {
   display: flex;
@@ -374,8 +314,6 @@ body {
 @media (max-height: 720px) {
   .login-hero { padding: 14px 22px 12px; gap: 10px; }
   .hero-title { font-size: 1.45rem; }
-  .hero-stat { padding: 6px 8px; }
-  .hero-stat-num { font-size: 14px; }
   .login-card { padding: 22px 22px 18px; }
   .login-card-head { margin-bottom: 16px; }
   .login-card-head h2 { font-size: 20px; }
@@ -408,8 +346,7 @@ body {
   }
 
   .hero-top,
-  .hero-body,
-  .hero-stats { display: none; }
+  .hero-body { display: none; }
 
   .hero-image-wrap {
     border-radius: 0;
@@ -435,14 +372,6 @@ body {
     font-size: 18px;
     font-weight: 700;
     color: #fff;
-  }
-
-  .hero-image-chip {
-    bottom: 12px;
-    left: auto;
-    right: 10px;
-    font-size: 10px;
-    padding: 4px 8px;
   }
 
   .login-panel {

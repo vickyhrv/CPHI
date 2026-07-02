@@ -552,6 +552,8 @@ tbody select:focus {
 }
 .row-delete:hover { color: var(--warn); background: var(--warn-soft); }
 
+.task-row .row-delete { margin-top: 6px; }
+
 .totals-row {
   font-weight: 700;
   background: var(--brand-soft);
@@ -614,11 +616,53 @@ tbody select:focus {
   text-transform: uppercase;
   letter-spacing: 0.07em;
   border-bottom: 1px solid var(--line);
+  gap: 12px;
+}
+
+.phase-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.phase-add-btn {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink-soft);
+}
+
+.phase-add-btn:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: #fff;
+}
+
+.phase-done-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.phase-empty {
+  padding: 14px 16px 16px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-style: italic;
+  border-bottom: 1px solid #EDE6DC;
+  background: #FDFAF6;
 }
 
 .task-col-headers {
   display: grid;
-  grid-template-columns: 22px minmax(140px, 1.4fr) 120px 130px minmax(100px, 1fr) 72px 32px;
+  grid-template-columns: 22px minmax(140px, 1.4fr) 120px 130px minmax(140px, 1.25fr) 72px 32px;
   gap: 10px;
   padding: 7px 16px;
   font-size: 10px;
@@ -632,8 +676,8 @@ tbody select:focus {
 
 .task-row {
   display: grid;
-  grid-template-columns: 22px minmax(140px, 1.4fr) 120px 130px minmax(100px, 1fr) 72px 32px;
-  align-items: center;
+  grid-template-columns: 22px minmax(140px, 1.4fr) 120px 130px minmax(140px, 1.25fr) 72px 32px;
+  align-items: start;
   gap: 10px;
   padding: 9px 16px;
   border-bottom: 1px solid #EDE6DC;
@@ -648,6 +692,7 @@ tbody select:focus {
   accent-color: var(--brand);
   cursor: pointer;
   flex-shrink: 0;
+  margin-top: 8px;
 }
 
 .task-text-input {
@@ -660,6 +705,7 @@ tbody select:focus {
   width: 100%;
   color: var(--ink);
   transition: border-color 0.15s;
+  margin-top: 6px;
 }
 .task-text-input:hover { border-color: var(--line); }
 .task-text-input:focus { border-color: var(--brand); outline: none; background: #fff; }
@@ -673,6 +719,7 @@ tbody select:focus {
   font-family: inherit;
   width: 100%;
   background: transparent;
+  margin-top: 6px;
 }
 .owner-input:focus { outline: none; border-color: var(--brand); background: #fff; }
 
@@ -685,24 +732,57 @@ tbody select:focus {
   width: 100%;
   color: var(--ink);
   background: transparent;
+  margin-top: 6px;
 }
 .due-input:focus { outline: none; border-color: var(--brand); background: #fff; }
 .due-input.overdue { border-color: var(--warn); color: var(--warn); }
 
+.notes-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
 .notes-input {
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 5px 8px;
+  padding: 6px 8px;
   font-size: 12px;
   font-family: inherit;
   width: 100%;
+  min-height: 52px;
+  max-height: 160px;
+  resize: none;
+  line-height: 1.45;
   background: transparent;
   color: var(--ink);
+  overflow-y: auto;
 }
 .notes-input:hover { border-color: #C8BFB5; }
 .notes-input:focus { outline: none; border-color: var(--brand); background: #fff; }
 
-.task-actions { display: flex; gap: 2px; align-items: center; justify-content: center; }
+.notes-expand-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #FAF5EE;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.notes-expand-btn:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.task-actions { display: flex; gap: 2px; align-items: center; justify-content: center; margin-top: 6px; }
 
 .email-btn {
   font-size: 14px;
@@ -858,6 +938,104 @@ tbody select:focus {
 .act-ts    { font-size: 11px; color: #B7AFA4; white-space: nowrap; flex-shrink: 0; }
 
 /* ─────────────────────────────────────────────
+   ADMIN
+───────────────────────────────────────────── */
+.tab-btn-admin {
+  margin-left: auto;
+  color: var(--ink-soft);
+}
+
+.admin-hint {
+  margin: -4px 0 16px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.admin-table-wrap table {
+  min-width: 640px;
+}
+
+.admin-users-table .user-code {
+  font-size: 12px;
+  background: #FAF5EE;
+  padding: 2px 7px;
+  border-radius: 5px;
+  color: var(--ink);
+}
+
+.admin-actions-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.btn-sm {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.btn-danger-text {
+  color: var(--warn);
+}
+.btn-danger-text:hover {
+  color: #fff;
+  background: var(--warn);
+}
+
+.role-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 20px;
+}
+
+.role-admin {
+  background: #EDE8FF;
+  color: #5B4DB8;
+  border: 1px solid #D4CBFF;
+}
+
+.role-user {
+  background: #EEF4F8;
+  color: #4A6B82;
+  border: 1px solid #D2E2EC;
+}
+
+.status-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 20px;
+}
+
+.status-on {
+  background: var(--good-soft);
+  color: var(--good);
+}
+
+.status-off {
+  background: #F5EBEB;
+  color: var(--warn);
+}
+
+.user-disabled td {
+  opacity: 0.72;
+}
+
+.admin-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 28px 16px !important;
+  font-style: italic;
+}
+
+/* ─────────────────────────────────────────────
    MODAL
 ───────────────────────────────────────────── */
 .modal-backdrop {
@@ -947,6 +1125,23 @@ tbody select:focus {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.modal-hint {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: -8px 0 16px;
+}
+
+.modal-textarea {
+  min-height: 88px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.modal-textarea-lg {
+  min-height: 200px;
 }
 
 /* ─────────────────────────────────────────────
@@ -1285,7 +1480,7 @@ tbody select:focus {
 
   .task-row .owner-input,
   .task-row .due-input,
-  .task-row .notes-input,
+  .task-row .notes-cell,
   .task-row .email-btn { display: none; }
 
   .lead-list { grid-template-columns: 1fr; }

@@ -2,16 +2,19 @@
   {
     "username": "hrvadmin",
     "password": "CHANGE_THIS_PASSWORD",
-    "displayName": "HRV Admin"
+    "displayName": "HRV Admin",
+    "role": "admin"
   },
   {
     "username": "boothlead",
     "password": "CHANGE_THIS_PASSWORD",
-    "displayName": "Booth Lead"
+    "displayName": "Booth Lead",
+    "role": "user"
   },
   {
     "username": "planner",
     "password": "CHANGE_THIS_PASSWORD",
-    "displayName": "Event Planner"
+    "displayName": "Event Planner",
+    "role": "user"
   }
 ]

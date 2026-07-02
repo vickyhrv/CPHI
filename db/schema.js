@@ -94,14 +94,33 @@ CREATE TABLE IF NOT EXISTS file_assets (
   uploaded_by   TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  username      TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  display_name  TEXT NOT NULL DEFAULT '',
+  role          TEXT NOT NULL DEFAULT 'user',
+  enabled       INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS task_phases (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  name        TEXT NOT NULL UNIQUE,
+  sort_order  INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_phase ON tasks(phase);
 CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks(done);
 CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity_log(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_file_assets_updated ON file_assets(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 `;
 
-const MIGRATION_VERSION = 3;
+const MIGRATION_VERSION = 4;
 
 function columnExists(db, table, column) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -129,6 +148,27 @@ function applyMigration(db, version) {
         uploaded_by   TEXT NOT NULL DEFAULT ''
       );
       CREATE INDEX IF NOT EXISTS idx_file_assets_updated ON file_assets(updated_at DESC);
+    `);
+  }
+  if (version === 4) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        username      TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        display_name  TEXT NOT NULL DEFAULT '',
+        role          TEXT NOT NULL DEFAULT 'user',
+        enabled       INTEGER NOT NULL DEFAULT 1
+      );
+      CREATE TABLE IF NOT EXISTS task_phases (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        name        TEXT NOT NULL UNIQUE,
+        sort_order  INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
     `);
   }
 }

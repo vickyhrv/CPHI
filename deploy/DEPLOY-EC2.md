@@ -57,7 +57,7 @@ export CERTBOT_EMAIL=admin@hrvglobal.ai
 ## 4. After setup
 
 - Open **https://cphi-milan.hrvglobal.ai**
-- Login with team credentials (see `auth.js`)
+- Login with team credentials (imported from `/etc/cphi-app/users.json` on first boot)
 
 ## 5. Deploy updates (after `git push`)
 
@@ -109,17 +109,41 @@ sudo certbot renew --dry-run
 
 Passwords live in **`/etc/cphi-app/users.json`** on the server only (never committed).
 
-After setup, edit passwords:
+On **first startup**, the app imports users from that file into SQLite (`users` table). After import, manage accounts from the **Admin** tab (admins only) or by editing the database — restarting alone does not re-import.
+
+Example `users.json` (see `deploy/users.example.json`):
+
+```json
+[
+  {
+    "username": "hrvadmin",
+    "password": "YourSecret",
+    "displayName": "HRV Admin",
+    "role": "admin"
+  }
+]
+```
+
+`hrvadmin` is always treated as admin if `role` is omitted. Passwords are stored hashed in SQLite after import.
+
+After setup, edit passwords on the server:
 
 ```bash
 sudo nano /etc/cphi-app/users.json
+```
+
+For a **fresh** install (empty `users` table), restart to re-import:
+
+```bash
 sudo systemctl restart cphi-app
 ```
+
+If users already exist in SQLite, use the Admin tab or reset via API instead of editing JSON.
 
 Or pass JSON at setup time:
 
 ```bash
-sudo CPHI_USERS_JSON='[{"username":"hrvadmin","password":"YourSecret","displayName":"HRV Admin"}]' bash deploy/setup-ec2.sh
+sudo CPHI_USERS_JSON='[{"username":"hrvadmin","password":"YourSecret","displayName":"HRV Admin","role":"admin"}]' bash deploy/setup-ec2.sh
 ```
 
 **Important:** This repo was public with old hardcoded passwords in git history — **change all passwords** after deploy.
@@ -190,9 +214,9 @@ sudo nginx -t && sudo systemctl restart nginx
 sudo certbot --nginx -d cphi-milan.hrvglobal.ai
 ```
 
-**Login does not work** — template passwords are placeholders until you edit the server file:
+**Login does not work** — check credentials in `/etc/cphi-app/users.json` (first boot only) or use Admin → reset password. Users are stored in SQLite after import:
 
 ```bash
-sudo nano /etc/cphi-app/users.json
+sudo journalctl -u cphi-app -n 30 | grep -i user
 sudo systemctl restart cphi-app
 ```

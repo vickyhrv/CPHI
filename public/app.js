@@ -76,10 +76,11 @@ const deleteLocks = {
 
 // ── Identity (who is using the app) ──────────────────────────────────────────
 let currentUser = localStorage.getItem('cphi_user') || '';
+let currentSession = { role: 'user', isAdmin: false, username: '' };
 
 function initIdentity() {
   const banner = document.getElementById('identityBanner');
-  const chip   = document.getElementById('userChip');
+  const chip = document.getElementById('userChip');
 
   function setUser(name) {
     currentUser = name.trim();
@@ -98,12 +99,11 @@ function initIdentity() {
     const v = document.getElementById('identityInput').value.trim();
     if (v) setUser(v);
   });
-  document.getElementById('identityInput').addEventListener('keydown', e => {
+  document.getElementById('identityInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') document.getElementById('identitySave').click();
   });
-  chip.addEventListener('click', () => {
-    banner.style.display = banner.style.display === 'none' ? 'flex' : 'none';
-  });
+  chip.addEventListener('click', () => openModal('changePassword'));
+  chip.title = 'Account — change password';
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -115,6 +115,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.getElementById(btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'activity') loadActivity();
     if (btn.dataset.tab === 'files') loadFiles();
+    if (btn.dataset.tab === 'admin') loadAdminUsers();
   });
 });
 
@@ -369,6 +370,7 @@ document.getElementById('exportBudgetBtn').addEventListener('click', () => expor
 // TASKS
 // ═══════════════════════════════════════════════════════════════════════════════
 let taskData = [];
+let taskPhaseNames = [];
 let taskListenersBound = false;
 const taskSaveTimers = new Map();
 
@@ -421,21 +423,32 @@ function bindTaskListeners() {
 
   container.addEventListener('input', (e) => {
     const inp = e.target;
-    if (!(inp instanceof HTMLInputElement) || !inp.classList.contains('notes-input')) return;
+    if (!(inp instanceof HTMLTextAreaElement) || !inp.classList.contains('notes-input')) return;
+    autoResizeNotes(inp);
     const rowId = inp.closest('.task-row')?.dataset?.rowId;
     if (rowId) scheduleTaskFieldSave(rowId, 'notes', inp.value);
   });
 
   container.addEventListener('focusout', (e) => {
     const inp = e.target;
-    if (!(inp instanceof HTMLInputElement) || !inp.classList.contains('notes-input')) return;
+    if (!(inp instanceof HTMLTextAreaElement) || !inp.classList.contains('notes-input')) return;
     const rowId = inp.closest('.task-row')?.dataset?.rowId;
     if (rowId) scheduleTaskFieldSave(rowId, 'notes', inp.value, 0);
   });
 }
 
+function autoResizeNotes(el) {
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(Math.max(el.scrollHeight, 52), 160)}px`;
+}
+
 async function loadTasks() {
-  taskData = await api('/api/tasks');
+  const [tasks, phases] = await Promise.all([
+    api('/api/tasks'),
+    api('/api/task-phases'),
+  ]);
+  taskData = tasks;
+  taskPhaseNames = phases;
   renderTasks();
 }
 
@@ -477,12 +490,20 @@ async function saveTaskRow(id, field, value) {
 function renderTasks() {
   const container = document.getElementById('taskPhases');
   container.innerHTML = '';
-  const phases = [...new Set(taskData.map(t => t.phase))];
+  const phases = taskPhaseNames.length
+    ? [...taskPhaseNames]
+    : [...new Set(taskData.map((t) => t.phase))];
   let doneCount = 0;
 
-  phases.forEach(phase => {
-    const items = taskData.filter(t => t.phase === phase);
-    const phaseDone = items.filter(t => t.done).length;
+  if (!phases.length && !taskData.length) {
+    container.innerHTML = '<div class="empty-state">No tasks yet — add a phase or task to get started.</div>';
+    document.getElementById('statTasks').textContent = '0/0';
+    return;
+  }
+
+  phases.forEach((phase) => {
+    const items = taskData.filter((t) => t.phase === phase);
+    const phaseDone = items.filter((t) => t.done).length;
     doneCount += phaseDone;
 
     const group = document.createElement('div');
@@ -490,15 +511,25 @@ function renderTasks() {
 
     group.innerHTML = `
       <div class="phase-header">
-        <span>${esc(phase)}</span>
-        <span>${phaseDone}/${items.length} done</span>
+        <span class="phase-title">${esc(phase)}</span>
+        <div class="phase-header-actions">
+          <button type="button" class="btn-ghost phase-add-btn" data-phase="${esc(phase)}">+ Add task</button>
+          <span class="phase-done-count">${phaseDone}/${items.length} done</span>
+        </div>
       </div>
       <div class="task-col-headers">
         <span></span><span>Task</span><span>Owner</span><span>Due date</span><span>Notes</span><span>Actions</span><span></span>
       </div>
     `;
 
-    items.forEach(t => {
+    if (!items.length) {
+      const empty = document.createElement('div');
+      empty.className = 'phase-empty';
+      empty.textContent = 'No tasks in this phase yet — click + Add task above.';
+      group.appendChild(empty);
+    }
+
+    items.forEach((t) => {
       const row = document.createElement('div');
       row.className = 'task-row' + (t.done ? ' task-done' : '');
       row.dataset.rowId = t.id;
@@ -507,9 +538,12 @@ function renderTasks() {
       row.innerHTML = `
         <input type="checkbox" ${t.done ? 'checked' : ''} title="Mark complete" />
         <input class="task-text-input" value="${esc(t.task)}" />
-        <input class="owner-input" placeholder="Owner" value="${esc(t.owner||'')}" />
-        <input class="due-input ${overdue ? 'overdue' : ''}" type="date" value="${esc(t.due_date||'')}" title="${overdue ? 'Overdue!' : 'Due date'}" />
-        <input class="notes-input" placeholder="Notes" value="${esc(t.notes||'')}" />
+        <input class="owner-input" placeholder="Owner" value="${esc(t.owner || '')}" />
+        <input class="due-input ${overdue ? 'overdue' : ''}" type="date" value="${esc(t.due_date || '')}" title="${overdue ? 'Overdue!' : 'Due date'}" />
+        <div class="notes-cell">
+          <textarea class="notes-input" rows="2" placeholder="Notes"></textarea>
+          <button type="button" class="notes-expand-btn" data-row-id="${t.id}" title="Expand notes">⤢</button>
+        </div>
         <div class="task-actions">
           ${t.owner && t.owner.includes('@')
             ? `<button type="button" class="email-btn" title="Send follow-up email to ${esc(t.owner)}">📧</button>`
@@ -519,13 +553,14 @@ function renderTasks() {
         <button type="button" class="row-delete" data-row-id="${t.id}" title="Delete this task only">✕</button>
       `;
 
+      const notesEl = row.querySelector('.notes-input');
+      notesEl.value = t.notes || '';
+      autoResizeNotes(notesEl);
+
       row.querySelector('.email-btn').addEventListener('click', () => {
         const owner = t.owner || '';
-        if (owner.includes('@')) {
-          openEmailFollowUp(t);
-        } else {
-          openWhatsAppFollowUp(t);
-        }
+        if (owner.includes('@')) openEmailFollowUp(t);
+        else openWhatsAppFollowUp(t);
       });
 
       group.appendChild(row);
@@ -560,6 +595,19 @@ async function deleteTask(id) {
 }
 
 document.getElementById('taskPhases').addEventListener('click', (e) => {
+  const phaseBtn = e.target.closest('.phase-add-btn[data-phase]');
+  if (phaseBtn) {
+    e.preventDefault();
+    openModal('task', { phase: phaseBtn.dataset.phase });
+    return;
+  }
+  const expandBtn = e.target.closest('.notes-expand-btn[data-row-id]');
+  if (expandBtn) {
+    e.preventDefault();
+    const row = taskData.find((t) => String(t.id) === String(expandBtn.dataset.rowId));
+    if (row) openModal('taskNotes', { id: row.id, notes: row.notes || '' });
+    return;
+  }
   const btn = e.target.closest('button.row-delete[data-row-id]');
   if (!btn) return;
   e.preventDefault();
@@ -568,6 +616,7 @@ document.getElementById('taskPhases').addEventListener('click', (e) => {
 });
 
 document.getElementById('addTaskBtn').addEventListener('click', () => openModal('task'));
+document.getElementById('addPhaseBtn').addEventListener('click', () => openModal('addPhase'));
 document.getElementById('exportTasksBtn').addEventListener('click', () => exportCsv('/api/tasks/export.csv'));
 
 // WhatsApp tasks summary
@@ -1076,6 +1125,78 @@ function bindFileListeners() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// ADMIN
+// ═══════════════════════════════════════════════════════════════════════════════
+let adminUsers = [];
+
+async function loadAdminUsers() {
+  adminUsers = await api('/api/admin/users');
+  renderAdminUsers();
+}
+
+function renderAdminUsers() {
+  const body = document.getElementById('adminUsersBody');
+  if (!body) return;
+  if (!adminUsers.length) {
+    body.innerHTML = '<tr><td colspan="5" class="admin-empty">No users yet — create one above.</td></tr>';
+    return;
+  }
+  body.innerHTML = '';
+  adminUsers.forEach((u) => {
+    const tr = document.createElement('tr');
+    if (!u.enabled) tr.classList.add('user-disabled');
+    const isSelf = currentSession.username && u.username === currentSession.username;
+    tr.innerHTML = `
+      <td><code class="user-code">${esc(u.username)}</code></td>
+      <td>${esc(u.display_name)}</td>
+      <td><span class="role-badge role-${esc(u.role)}">${esc(u.role)}</span></td>
+      <td><span class="status-pill ${u.enabled ? 'status-on' : 'status-off'}">${u.enabled ? 'Active' : 'Disabled'}</span></td>
+      <td class="admin-actions-cell">
+        <button type="button" class="btn-ghost btn-sm" data-action="reset" data-id="${u.id}">Reset pwd</button>
+        <button type="button" class="btn-ghost btn-sm" data-action="toggle" data-id="${u.id}">${u.enabled ? 'Disable' : 'Enable'}</button>
+        <button type="button" class="btn-ghost btn-sm btn-danger-text" data-action="delete" data-id="${u.id}" ${isSelf ? 'disabled title="Cannot delete yourself"' : ''}>Delete</button>
+      </td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+document.getElementById('createUserBtn')?.addEventListener('click', () => openModal('createUser'));
+
+document.getElementById('adminUsersBody')?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const user = adminUsers.find((u) => String(u.id) === String(id));
+  if (!user) return;
+
+  if (btn.dataset.action === 'reset') {
+    openModal('resetPassword', { id: user.id, username: user.username });
+  } else if (btn.dataset.action === 'toggle') {
+    try {
+      await api(`/api/admin/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !user.enabled }),
+      });
+      await loadAdminUsers();
+      clearApiError();
+    } catch (err) {
+      showApiError(err);
+    }
+  } else if (btn.dataset.action === 'delete') {
+    if (!confirm(`Delete user "${user.username}"? This cannot be undone.`)) return;
+    try {
+      await api(`/api/admin/users/${id}`, { method: 'DELETE' });
+      await loadAdminUsers();
+      clearApiError();
+    } catch (err) {
+      showApiError(err);
+    }
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // ACTIVITY LOG
 // ═══════════════════════════════════════════════════════════════════════════════
 const ACTION_ICONS = {
@@ -1084,6 +1205,9 @@ const ACTION_ICONS = {
   'Captured lead': '🤝', 'Deleted lead': '🗑️',
   'Added traveler': '🛂', 'Removed traveler': '🗑️',
   'Uploaded file': '📁', 'Deleted file': '🗑️',
+  'Created user': '👤', 'Updated user': '✏️', 'Disabled user': '🚫', 'Enabled user': '✅',
+  'Reset user password': '🔑', 'Deleted user': '🗑️', 'Changed own password': '🔒',
+  'Added task phase': '📂',
 };
 
 async function loadActivity() {
@@ -1198,15 +1322,22 @@ function openModal(type, data) {
     });
 
   } else if (type === 'task') {
+    const presetPhase = data?.phase || '';
+    const phaseOptions = [...new Set([...taskPhaseNames, ...taskData.map((t) => t.phase)].filter(Boolean))]
+      .map((p) => `<option value="${esc(p)}"></option>`).join('');
     modal.innerHTML = `
       <h3>Add task</h3>
-      <div class="field-group"><label>Phase / Group</label><input id="f_phase" placeholder="e.g. Stall & Venue" /></div>
+      <div class="field-group">
+        <label>Phase / Group</label>
+        <input id="f_phase" list="phaseList" placeholder="e.g. Stall & Venue" value="${esc(presetPhase)}" ${presetPhase ? 'readonly' : ''} />
+        <datalist id="phaseList">${phaseOptions}</datalist>
+      </div>
       <div class="field-group"><label>Task *</label><input id="f_task" /></div>
       <div class="field-row">
         <div class="field-group"><label>Owner (name or email)</label><input id="f_owner" /></div>
         <div class="field-group"><label>Due date</label><input id="f_due" type="date" /></div>
       </div>
-      <div class="field-group"><label>Notes</label><input id="f_notes" placeholder="Optional notes" /></div>
+      <div class="field-group"><label>Notes</label><textarea id="f_notes" class="modal-textarea" rows="4" placeholder="Optional notes — supports multiple lines"></textarea></div>
       <div class="modal-actions">
         <button class="btn-secondary" id="cancelBtn">Cancel</button>
         <button class="btn-primary" id="saveBtn">Add task</button>
@@ -1214,7 +1345,7 @@ function openModal(type, data) {
     `;
     modal.querySelector('#saveBtn').addEventListener('click', async () => {
       const phase = modal.querySelector('#f_phase').value.trim() || 'Other';
-      const task  = modal.querySelector('#f_task').value.trim();
+      const task = modal.querySelector('#f_task').value.trim();
       if (!task) { alert('Task is required'); return; }
       await api('/api/tasks', {
         method: 'POST',
@@ -1225,9 +1356,147 @@ function openModal(type, data) {
           due_date: modal.querySelector('#f_due').value,
           notes: modal.querySelector('#f_notes').value,
           who: currentUser,
-        })
+        }),
       });
-      closeModal(); loadTasks();
+      closeModal();
+      await loadTasks();
+    });
+
+  } else if (type === 'addPhase') {
+    modal.innerHTML = `
+      <h3>Add phase / group</h3>
+      <div class="field-group"><label>Phase name *</label><input id="f_phase_name" placeholder="e.g. Commercial Prep" /></div>
+      <p class="modal-hint">Creates a new section in the task list. Add tasks to it with the + Add task button on that phase.</p>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelBtn">Cancel</button>
+        <button class="btn-primary" id="saveBtn">Create phase</button>
+      </div>
+    `;
+    modal.querySelector('#saveBtn').addEventListener('click', async () => {
+      const name = modal.querySelector('#f_phase_name').value.trim();
+      if (!name) { alert('Phase name is required'); return; }
+      await api('/api/task-phases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      closeModal();
+      await loadTasks();
+    });
+
+  } else if (type === 'taskNotes') {
+    modal.innerHTML = `
+      <h3>Edit notes</h3>
+      <div class="field-group"><textarea id="f_notes_large" class="modal-textarea modal-textarea-lg" rows="10" placeholder="Notes — multiple lines supported"></textarea></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelBtn">Cancel</button>
+        <button class="btn-primary" id="saveBtn">Save notes</button>
+      </div>
+    `;
+    modal.querySelector('#f_notes_large').value = data?.notes || '';
+    modal.querySelector('#saveBtn').addEventListener('click', async () => {
+      const notes = modal.querySelector('#f_notes_large').value;
+      await saveTaskRow(data.id, 'notes', notes);
+      const inline = document.querySelector(`.task-row[data-row-id="${data.id}"] .notes-input`);
+      if (inline) {
+        inline.value = notes;
+        autoResizeNotes(inline);
+      }
+      closeModal();
+    });
+
+  } else if (type === 'changePassword') {
+    modal.innerHTML = `
+      <h3>Change password</h3>
+      <p class="modal-hint">Signed in as <strong>${esc(currentSession.username || currentUser)}</strong></p>
+      <div class="field-group"><label>Current password</label><input id="f_current" type="password" autocomplete="current-password" /></div>
+      <div class="field-group"><label>New password</label><input id="f_new" type="password" autocomplete="new-password" placeholder="Min. 8 characters" /></div>
+      <div class="field-group"><label>Confirm new password</label><input id="f_confirm" type="password" autocomplete="new-password" /></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelBtn">Cancel</button>
+        <button class="btn-primary" id="saveBtn">Update password</button>
+      </div>
+    `;
+    modal.querySelector('#saveBtn').addEventListener('click', async () => {
+      const currentPassword = modal.querySelector('#f_current').value;
+      const newPassword = modal.querySelector('#f_new').value;
+      const confirm = modal.querySelector('#f_confirm').value;
+      if (newPassword !== confirm) { alert('New passwords do not match'); return; }
+      try {
+        await api('/api/auth/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentPassword, newPassword }),
+        });
+        closeModal();
+        clearApiError();
+        alert('Password updated successfully.');
+      } catch (err) {
+        showApiError(err);
+      }
+    });
+
+  } else if (type === 'createUser') {
+    modal.innerHTML = `
+      <h3>Create user</h3>
+      <div class="field-row">
+        <div class="field-group"><label>Username *</label><input id="f_username" placeholder="e.g. boothlead" /></div>
+        <div class="field-group"><label>Display name</label><input id="f_display" placeholder="Booth Lead" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field-group"><label>Temporary password *</label><input id="f_password" type="password" placeholder="Min. 8 characters" /></div>
+        <div class="field-group"><label>Role</label>
+          <select id="f_role"><option value="user">User</option><option value="admin">Admin</option></select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelBtn">Cancel</button>
+        <button class="btn-primary" id="saveBtn">Create user</button>
+      </div>
+    `;
+    modal.querySelector('#saveBtn').addEventListener('click', async () => {
+      try {
+        await api('/api/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: modal.querySelector('#f_username').value.trim(),
+            displayName: modal.querySelector('#f_display').value.trim(),
+            password: modal.querySelector('#f_password').value,
+            role: modal.querySelector('#f_role').value,
+          }),
+        });
+        closeModal();
+        await loadAdminUsers();
+        clearApiError();
+      } catch (err) {
+        showApiError(err);
+      }
+    });
+
+  } else if (type === 'resetPassword') {
+    modal.innerHTML = `
+      <h3>Reset password</h3>
+      <p class="modal-hint">Set a new password for <strong>${esc(data.username)}</strong></p>
+      <div class="field-group"><label>New password</label><input id="f_password" type="password" placeholder="Min. 8 characters" /></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelBtn">Cancel</button>
+        <button class="btn-primary" id="saveBtn">Reset password</button>
+      </div>
+    `;
+    modal.querySelector('#saveBtn').addEventListener('click', async () => {
+      try {
+        await api(`/api/admin/users/${data.id}/password`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: modal.querySelector('#f_password').value }),
+        });
+        closeModal();
+        clearApiError();
+        alert(`Password reset for ${data.username}`);
+      } catch (err) {
+        showApiError(err);
+      }
     });
 
   } else if (type === 'cap') {
@@ -1355,10 +1624,19 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
 
 async function bootstrapApp() {
   const me = await api('/api/auth/me');
-  if (me.authenticated && me.displayName && !localStorage.getItem('cphi_user')) {
-    localStorage.setItem('cphi_user', me.displayName);
-    const chip = document.getElementById('userChip');
-    if (chip) chip.textContent = '👤 ' + me.displayName;
+  if (me.authenticated) {
+    currentSession = me;
+    if (me.displayName) {
+      currentUser = me.displayName;
+      localStorage.setItem('cphi_user', me.displayName);
+      const chip = document.getElementById('userChip');
+      if (chip) chip.textContent = '👤 ' + me.displayName;
+    }
+    document.getElementById('identityBanner').style.display = 'none';
+    if (me.isAdmin) {
+      const adminTab = document.getElementById('adminTabBtn');
+      if (adminTab) adminTab.style.display = '';
+    }
   }
   await loadSettings();
   await Promise.all([loadBudget(), loadTasks(), loadLeads(), loadTravelers()]);
