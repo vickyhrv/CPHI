@@ -327,7 +327,7 @@ function renderBudget() {
       <td class="budget-cat-cell">
         <input class="budget-cat-input" list="budgetCategoryList" value="${esc(row.category || '')}" data-field="category" placeholder="Pick or type" title="Choose from list or type a custom category" />
       </td>
-      <td class="budget-item-cell"><input class="budget-item-input" value="${esc(row.item)}" data-field="item" /></td>
+      <td class="budget-item-cell"><textarea class="budget-item-input" rows="1" data-field="item"></textarea></td>
       <td class="budget-vendor-cell">
         <div class="vendor-summary">${summary || '<span class="cell-empty">Add vendor / POC</span>'}</div>
         <button type="button" class="btn-ghost btn-sm vendor-edit-btn" data-row-id="${row.id}">Edit vendor</button>
@@ -339,10 +339,20 @@ function renderBudget() {
       <td class="budget-actions-cell"><button type="button" class="row-delete" data-row-id="${row.id}" title="Delete this line only">✕</button></td>
     `;
 
-    tr.querySelectorAll('input, select').forEach((inp) => {
+    const itemEl = tr.querySelector('.budget-item-input');
+    if (itemEl) {
+      itemEl.value = row.item || '';
+      autoExpandTextarea(itemEl, 32);
+    }
+
+    tr.querySelectorAll('input, select, textarea').forEach((inp) => {
       inp.addEventListener('change', () => saveBudgetRow(row.id, inp.dataset.field, inp.value));
       if (inp.dataset.field === 'category') {
         inp.addEventListener('focusout', () => saveBudgetRow(row.id, 'category', inp.value.trim()));
+      }
+      if (inp.classList.contains('budget-item-input')) {
+        inp.addEventListener('input', () => autoExpandTextarea(inp, 32));
+        inp.addEventListener('focusout', () => saveBudgetRow(row.id, 'item', inp.value));
       }
     });
 
@@ -452,10 +462,40 @@ let taskPhaseMeta = [];
 
 function normalizePhaseList(phases) {
   if (!Array.isArray(phases) || !phases.length) return [];
-  if (typeof phases[0] === 'string') {
-    return phases.map((name) => ({ id: null, name, taskCount: 0, inDb: false }));
+  const list = typeof phases[0] === 'string'
+    ? phases.map((name) => ({ id: null, name, taskCount: 0, inDb: false, sort_order: 9999 }))
+    : [...phases];
+  return list.sort((a, b) => (a.sort_order ?? 9999) - (b.sort_order ?? 9999));
+}
+
+const COLLAPSED_PHASES_KEY = 'cphi_collapsed_phases';
+
+function getCollapsedPhases() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(COLLAPSED_PHASES_KEY) || '[]'));
+  } catch {
+    return new Set();
   }
-  return phases;
+}
+
+function isPhaseCollapsed(name) {
+  return getCollapsedPhases().has(String(name || '').trim());
+}
+
+function togglePhaseCollapsed(name) {
+  const key = String(name || '').trim();
+  if (!key) return;
+  const set = getCollapsedPhases();
+  if (set.has(key)) set.delete(key);
+  else set.add(key);
+  localStorage.setItem(COLLAPSED_PHASES_KEY, JSON.stringify([...set]));
+}
+
+function tasksForPhase(phaseName) {
+  const key = String(phaseName || '').trim().toLowerCase();
+  return taskData
+    .filter((t) => String(t.phase || '').trim().toLowerCase() === key)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || parseRowId(a.id) - parseRowId(b.id));
 }
 
 function phaseNamesList() {
@@ -501,36 +541,48 @@ function bindTaskListeners() {
 
   container.addEventListener('change', (e) => {
     const el = e.target;
-    if (el.classList.contains('notes-input')) return;
+    if (el.classList.contains('notes-input') || el.classList.contains('task-text-input')) return;
     const rowEl = el.closest('.task-row');
     const rowId = rowEl?.dataset?.rowId;
     if (!rowId) return;
 
     if (el.classList.contains('task-status-select')) saveTaskRow(rowId, 'status', el.value);
-    else if (el instanceof HTMLInputElement && el.classList.contains('task-text-input')) saveTaskRow(rowId, 'task', el.value);
     else if (el instanceof HTMLInputElement && el.classList.contains('owner-input')) saveTaskRow(rowId, 'owner', el.value);
     else if (el instanceof HTMLInputElement && el.classList.contains('due-input')) saveTaskRow(rowId, 'due_date', el.value);
   });
 
   container.addEventListener('input', (e) => {
     const inp = e.target;
-    if (!(inp instanceof HTMLTextAreaElement) || !inp.classList.contains('notes-input')) return;
-    autoResizeNotes(inp);
+    if (!(inp instanceof HTMLTextAreaElement)) return;
     const rowId = inp.closest('.task-row')?.dataset?.rowId;
-    if (rowId) scheduleTaskFieldSave(rowId, 'notes', inp.value);
+    if (inp.classList.contains('notes-input')) {
+      autoExpandTextarea(inp, 52);
+      if (rowId) scheduleTaskFieldSave(rowId, 'notes', inp.value);
+      return;
+    }
+    if (inp.classList.contains('task-text-input')) {
+      autoExpandTextarea(inp, 36);
+      if (rowId) scheduleTaskFieldSave(rowId, 'task', inp.value);
+    }
   });
 
   container.addEventListener('focusout', (e) => {
     const inp = e.target;
-    if (!(inp instanceof HTMLTextAreaElement) || !inp.classList.contains('notes-input')) return;
+    if (!(inp instanceof HTMLTextAreaElement)) return;
     const rowId = inp.closest('.task-row')?.dataset?.rowId;
-    if (rowId) scheduleTaskFieldSave(rowId, 'notes', inp.value, 0);
+    if (!rowId) return;
+    if (inp.classList.contains('notes-input')) scheduleTaskFieldSave(rowId, 'notes', inp.value, 0);
+    else if (inp.classList.contains('task-text-input')) scheduleTaskFieldSave(rowId, 'task', inp.value, 0);
   });
 }
 
-function autoResizeNotes(el) {
+function autoExpandTextarea(el, minPx = 36) {
   el.style.height = 'auto';
-  el.style.height = `${Math.min(Math.max(el.scrollHeight, 52), 160)}px`;
+  el.style.height = `${Math.max(el.scrollHeight, minPx)}px`;
+}
+
+function autoResizeNotes(el) {
+  autoExpandTextarea(el, 52);
 }
 
 async function loadTasks() {
@@ -639,32 +691,43 @@ function renderTasks() {
   phases.forEach((meta) => {
     const phase = typeof meta === 'string' ? meta : meta.name;
     const phaseId = typeof meta === 'object' ? meta.id : null;
-    const items = taskData.filter((t) => t.phase === phase);
+    const items = tasksForPhase(phase);
     const phaseDone = items.filter((t) => taskIsDone(t)).length;
     doneCount += phaseDone;
+    const collapsed = isPhaseCollapsed(phase);
 
     const group = document.createElement('div');
-    group.className = 'phase-group';
+    group.className = 'phase-group' + (collapsed ? ' collapsed' : '');
+    group.dataset.phaseName = phase;
+    if (phaseId) group.dataset.phaseId = phaseId;
 
     group.innerHTML = `
       <div class="phase-header">
-        <span class="phase-title">${esc(phase)}</span>
+        <div class="phase-header-left">
+          <button type="button" class="phase-collapse-btn" title="${collapsed ? 'Expand phase' : 'Collapse phase'}" aria-expanded="${!collapsed}">${collapsed ? '▶' : '▼'}</button>
+          <button type="button" class="phase-drag-handle" draggable="true" title="Drag to reorder phase" aria-label="Drag to reorder phase">⋮⋮</button>
+          <span class="phase-title">${esc(phase)}</span>
+        </div>
         <div class="phase-header-actions">
           <button type="button" class="btn-ghost phase-add-btn" data-phase="${esc(phase)}">+ Add task</button>
           <button type="button" class="phase-delete-btn" data-phase-id="${phaseId || ''}" data-phase-name="${esc(phase)}" title="Delete this phase">✕</button>
           <span class="phase-done-count">${phaseDone}/${items.length} done</span>
         </div>
       </div>
-      <div class="task-col-headers">
-        <span>Status</span><span>Task</span><span>Owner</span><span>Due date</span><span>Notes</span><span>Actions</span><span></span>
+      <div class="phase-body">
+        <div class="task-col-headers">
+          <span></span><span>Status</span><span>Task</span><span>Owner</span><span>Due date</span><span>Notes</span><span>Actions</span><span></span>
+        </div>
       </div>
     `;
+
+    const body = group.querySelector('.phase-body');
 
     if (!items.length) {
       const empty = document.createElement('div');
       empty.className = 'phase-empty';
       empty.textContent = 'No tasks in this phase yet — click + Add task above.';
-      group.appendChild(empty);
+      body.appendChild(empty);
     }
 
     items.forEach((t) => {
@@ -675,8 +738,9 @@ function renderTasks() {
       const overdue = status !== 'done' && isOverdue(t.due_date);
 
       row.innerHTML = `
+        <button type="button" class="task-drag-handle" draggable="true" title="Drag to reorder task" aria-label="Drag to reorder task">⋮⋮</button>
         <select class="task-status-select status-${status}" aria-label="Task status">${taskStatusOptions(status)}</select>
-        <input class="task-text-input" value="${esc(t.task)}" />
+        <textarea class="task-text-input" rows="1" placeholder="Task"></textarea>
         <input class="owner-input" placeholder="Owner" value="${esc(t.owner || '')}" />
         <input class="due-input ${overdue ? 'overdue' : ''}" type="date" value="${esc(t.due_date || '')}" title="${overdue ? 'Overdue!' : 'Due date'}" />
         <div class="notes-cell">
@@ -692,6 +756,10 @@ function renderTasks() {
         <button type="button" class="row-delete" data-row-id="${t.id}" title="Delete this task only">✕</button>
       `;
 
+      const taskEl = row.querySelector('.task-text-input');
+      taskEl.value = t.task || '';
+      autoExpandTextarea(taskEl, 36);
+
       const notesEl = row.querySelector('.notes-input');
       notesEl.value = t.notes || '';
       autoResizeNotes(notesEl);
@@ -706,7 +774,7 @@ function renderTasks() {
         e.target.className = `task-status-select status-${e.target.value}`;
       });
 
-      group.appendChild(row);
+      body.appendChild(row);
     });
     container.appendChild(group);
   });
@@ -738,6 +806,20 @@ async function deleteTask(id) {
 }
 
 document.getElementById('taskPhases').addEventListener('click', (e) => {
+  const collapseBtn = e.target.closest('.phase-collapse-btn');
+  if (collapseBtn) {
+    e.preventDefault();
+    const group = collapseBtn.closest('.phase-group');
+    const name = group?.dataset?.phaseName;
+    if (!name) return;
+    togglePhaseCollapsed(name);
+    group.classList.toggle('collapsed');
+    const collapsed = group.classList.contains('collapsed');
+    collapseBtn.textContent = collapsed ? '▶' : '▼';
+    collapseBtn.title = collapsed ? 'Expand phase' : 'Collapse phase';
+    collapseBtn.setAttribute('aria-expanded', String(!collapsed));
+    return;
+  }
   const delPhaseBtn = e.target.closest('.phase-delete-btn[data-phase-name]');
   if (delPhaseBtn) {
     e.preventDefault();
@@ -1883,10 +1965,191 @@ function openModal(type, data) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// TASK DRAG & DROP
+// ═══════════════════════════════════════════════════════════════════════════════
+let taskDnDBound = false;
+const taskDragState = { type: null, element: null, phase: null };
+
+function clearTaskDragState() {
+  document.querySelectorAll('.dragging, .drag-over').forEach((el) => {
+    el.classList.remove('dragging', 'drag-over');
+  });
+  taskDragState.type = null;
+  taskDragState.element = null;
+  taskDragState.phase = null;
+}
+
+async function persistTaskOrder(phase, orderedIds) {
+  await api('/api/tasks/reorder', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phase, orderedIds: orderedIds.map((id) => parseRowId(id)).filter(Boolean) }),
+  });
+  orderedIds.forEach((id, index) => {
+    const row = taskData.find((t) => String(t.id) === String(id));
+    if (row) row.sort_order = index;
+  });
+  clearApiError();
+}
+
+async function persistPhaseOrder(orderedNames) {
+  const result = await api('/api/task-phases/reorder', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderedNames }),
+  });
+  if (Array.isArray(result.phases)) {
+    taskPhaseMeta = result.phases.map((p) => ({
+      ...p,
+      taskCount: taskData.filter(
+        (t) => String(t.phase || '').trim().toLowerCase() === String(p.name || '').trim().toLowerCase()
+      ).length,
+    }));
+  }
+  clearApiError();
+}
+
+function bindTaskDnD() {
+  if (taskDnDBound) return;
+  taskDnDBound = true;
+  const container = document.getElementById('taskPhases');
+  if (!container) return;
+
+  container.addEventListener('dragstart', (e) => {
+    const phaseHandle = e.target.closest('.phase-drag-handle');
+    const taskHandle = e.target.closest('.task-drag-handle');
+    if (!phaseHandle && !taskHandle) return;
+
+    if (phaseHandle) {
+      const group = phaseHandle.closest('.phase-group');
+      if (!group) return;
+      taskDragState.type = 'phase';
+      taskDragState.element = group;
+      taskDragState.phase = null;
+      group.classList.add('dragging');
+    } else {
+      const row = taskHandle.closest('.task-row');
+      const group = row?.closest('.phase-group');
+      if (!row || !group) return;
+      taskDragState.type = 'task';
+      taskDragState.element = row;
+      taskDragState.phase = group.dataset.phaseName;
+      row.classList.add('dragging');
+    }
+
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', taskDragState.type);
+    if (e.dataTransfer.setDragImage) {
+      e.dataTransfer.setDragImage(taskDragState.element, 20, 20);
+    }
+  });
+
+  container.addEventListener('dragover', (e) => {
+    if (!taskDragState.type) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    if (taskDragState.type === 'phase') {
+      const group = e.target.closest('.phase-group');
+      if (!group || group === taskDragState.element) return;
+      document.querySelectorAll('.phase-group.drag-over').forEach((el) => {
+        if (el !== group) el.classList.remove('drag-over');
+      });
+      group.classList.add('drag-over');
+      return;
+    }
+
+    const row = e.target.closest('.task-row');
+    const group = row?.closest('.phase-group');
+    if (!row || !group || group.dataset.phaseName !== taskDragState.phase) return;
+    if (row === taskDragState.element) return;
+    document.querySelectorAll('.task-row.drag-over').forEach((el) => {
+      if (el !== row) el.classList.remove('drag-over');
+    });
+    row.classList.add('drag-over');
+  });
+
+  container.addEventListener('dragleave', (e) => {
+    const related = e.relatedTarget;
+    if (related && container.contains(related)) return;
+    document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+  });
+
+  container.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const saved = { ...taskDragState, element: taskDragState.element };
+
+    if (saved.type === 'phase') {
+      const target = e.target.closest('.phase-group');
+      if (!target || !saved.element || target === saved.element) {
+        clearTaskDragState();
+        return;
+      }
+      const fromIdx = [...container.querySelectorAll('.phase-group')].indexOf(saved.element);
+      const toIdx = [...container.querySelectorAll('.phase-group')].indexOf(target);
+      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) {
+        clearTaskDragState();
+        return;
+      }
+      if (fromIdx < toIdx) target.after(saved.element);
+      else target.before(saved.element);
+      const orderedNames = [...container.querySelectorAll('.phase-group')].map((g) => g.dataset.phaseName);
+      clearTaskDragState();
+      persistPhaseOrder(orderedNames).catch((err) => {
+        showApiError(err);
+        loadTasks();
+      });
+      return;
+    }
+
+    if (saved.type === 'task') {
+      let target = e.target.closest('.task-row');
+      const group = (target || e.target).closest('.phase-group');
+      if (!saved.element || !group || group.dataset.phaseName !== saved.phase) {
+        clearTaskDragState();
+        return;
+      }
+      if (!target) {
+        const rows = group.querySelectorAll('.task-row');
+        target = rows[rows.length - 1] || null;
+      }
+      if (!target) {
+        clearTaskDragState();
+        return;
+      }
+      const rows = [...group.querySelectorAll('.task-row')];
+      const fromIdx = rows.indexOf(saved.element);
+      const toIdx = rows.indexOf(target);
+      if (fromIdx === -1 || toIdx === -1) {
+        clearTaskDragState();
+        return;
+      }
+      if (fromIdx !== toIdx) {
+        if (fromIdx < toIdx) target.after(saved.element);
+        else target.before(saved.element);
+      }
+      const orderedIds = [...group.querySelectorAll('.task-row')].map((r) => r.dataset.rowId);
+      const phaseName = group.dataset.phaseName;
+      clearTaskDragState();
+      persistTaskOrder(phaseName, orderedIds).catch((err) => {
+        showApiError(err);
+        loadTasks();
+      });
+    }
+  });
+
+  container.addEventListener('dragend', () => {
+    setTimeout(clearTaskDragState, 0);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════════════════
 initIdentity();
 bindTaskListeners();
+bindTaskDnD();
 bindFileListeners();
 
 document.getElementById('logoutBtn').addEventListener('click', async () => {

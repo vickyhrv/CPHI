@@ -616,6 +616,13 @@ tbody select:focus {
   background: #fff;
   color: var(--ink);
 }
+
+.budget-item-input {
+  resize: none;
+  overflow: hidden;
+  line-height: 1.45;
+  min-height: 32px;
+}
 .budget-cat-input:focus,
 .budget-item-input:focus,
 .budget-notes-input:focus {
@@ -720,6 +727,80 @@ tbody select:focus {
   gap: 12px;
 }
 
+.phase-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.phase-collapse-btn {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #E0D5C8;
+  border-radius: 5px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.phase-collapse-btn:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.phase-drag-handle,
+.task-drag-handle {
+  cursor: grab;
+  color: #B8AFA4;
+  font-size: 14px;
+  letter-spacing: -2px;
+  user-select: none;
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+  border: 1px solid transparent;
+  background: transparent;
+  font-family: inherit;
+}
+.phase-drag-handle:hover,
+.task-drag-handle:hover {
+  color: var(--brand);
+  background: rgba(255, 255, 255, 0.6);
+  border-color: #E0D5C8;
+}
+.phase-drag-handle:active,
+.task-drag-handle:active {
+  cursor: grabbing;
+}
+
+.phase-group.collapsed .phase-body {
+  display: none;
+}
+
+.phase-group.dragging {
+  opacity: 0.55;
+}
+
+.phase-group.drag-over .phase-header {
+  outline: 2px dashed var(--brand);
+  outline-offset: -2px;
+}
+
+.task-row.dragging {
+  opacity: 0.55;
+}
+
+.task-row.drag-over {
+  background: #FFF3E8;
+  box-shadow: inset 0 -2px 0 var(--brand);
+}
+
 .phase-header-actions {
   display: flex;
   align-items: center;
@@ -783,7 +864,7 @@ tbody select:focus {
 
 .task-col-headers {
   display: grid;
-  grid-template-columns: 108px minmax(140px, 1.4fr) 120px 130px minmax(140px, 1.25fr) 72px 32px;
+  grid-template-columns: 28px 108px minmax(140px, 1.4fr) 120px 130px minmax(140px, 1.25fr) 72px 32px;
   gap: 10px;
   padding: 7px 16px;
   font-size: 10px;
@@ -797,7 +878,7 @@ tbody select:focus {
 
 .task-row {
   display: grid;
-  grid-template-columns: 108px minmax(140px, 1.4fr) 120px 130px minmax(140px, 1.25fr) 72px 32px;
+  grid-template-columns: 28px 108px minmax(140px, 1.4fr) 120px 130px minmax(140px, 1.25fr) 72px 32px;
   align-items: start;
   gap: 10px;
   padding: 9px 16px;
@@ -860,6 +941,10 @@ tbody select:focus {
   color: var(--ink);
   transition: border-color 0.15s;
   margin-top: 6px;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.45;
+  min-height: 32px;
 }
 .task-text-input:hover { border-color: var(--line); }
 .task-text-input:focus { border-color: var(--brand); outline: none; background: #fff; }
@@ -906,9 +991,9 @@ tbody select:focus {
   font-family: inherit;
   width: 100%;
   min-height: 52px;
-  max-height: 160px;
   resize: none;
   line-height: 1.45;
+  overflow: hidden;
   background: transparent;
   color: var(--ink);
   overflow-y: auto;
@@ -1709,9 +1794,11 @@ tbody select:focus {
   .task-col-headers { display: none; }
 
   .task-row {
-    grid-template-columns: 90px 1fr 32px;
+    grid-template-columns: 24px 90px 1fr 32px;
     padding: 10px 14px;
   }
+
+  .task-row .task-drag-handle { display: block; }
 
   .task-row .owner-input,
   .task-row .due-input,

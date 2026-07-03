@@ -122,7 +122,7 @@ CREATE INDEX IF NOT EXISTS idx_file_assets_updated ON file_assets(updated_at DES
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 `;
 
-const MIGRATION_VERSION = 6;
+const MIGRATION_VERSION = 7;
 
 function columnExists(db, table, column) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -185,6 +185,18 @@ function applyMigration(db, version) {
     }
     db.exec(`UPDATE tasks SET status = 'done' WHERE done = 1`);
     db.exec(`UPDATE tasks SET status = 'pending' WHERE done = 0 AND (status IS NULL OR status = '' OR status = 'pending')`);
+  }
+  if (version === 7) {
+    if (!columnExists(db, 'tasks', 'sort_order')) {
+      db.exec(`ALTER TABLE tasks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`);
+    }
+    const phases = db.prepare(`SELECT DISTINCT phase FROM tasks`).all();
+    for (const { phase } of phases) {
+      const tasks = db.prepare(`SELECT id FROM tasks WHERE phase = ? ORDER BY id ASC`).all(phase);
+      tasks.forEach((t, i) => {
+        db.prepare(`UPDATE tasks SET sort_order = ? WHERE id = ?`).run(i, t.id);
+      });
+    }
   }
 }
 

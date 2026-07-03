@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const store = require('./store');
-const { DB_PATH, UPLOAD_DIR } = require('./db/database');
+const { DB_PATH, UPLOAD_DIR, db, withTransaction } = require('./db/database');
 const {
   validateUpload,
   newStoredName,
@@ -194,6 +194,51 @@ function whoFromSession(req) {
   return req.user?.displayName || whoFromReq(req) || 'Unknown';
 }
 
+function insertTaskAtTop(fields) {
+  const phase = String(fields.phase || 'Other').trim() || 'Other';
+  let row;
+  withTransaction(() => {
+    db.prepare(
+      `UPDATE tasks SET sort_order = sort_order + 1 WHERE LOWER(TRIM(phase)) = LOWER(TRIM(?))`
+    ).run(phase);
+    row = store.insert('tasks', { ...fields, phase, sort_order: 0 });
+  });
+  return row;
+}
+
+/** Create a phase row at the top if it only exists on tasks (fixes orphan phases at bottom). */
+function ensurePhaseAtTop(name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return null;
+  const existing = store.all('task_phases').find(
+    (p) => p.name.toLowerCase() === trimmed.toLowerCase()
+  );
+  if (existing) return existing;
+  withTransaction(() => {
+    db.prepare('UPDATE task_phases SET sort_order = sort_order + 1').run();
+  });
+  return store.insert('task_phases', { name: trimmed, sort_order: 0 });
+}
+
+/** Backfill task_phases from tasks so every phase can be ordered / collapsed. */
+function syncTaskPhasesFromTasks() {
+  const existing = new Set(store.all('task_phases').map((p) => p.name.toLowerCase()));
+  const missing = [];
+  const seen = new Set();
+  for (const t of store.all('tasks')) {
+    const name = String(t.phase || '').trim();
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    if (!existing.has(name.toLowerCase())) missing.push(name);
+  }
+  if (!missing.length) return;
+  let maxSort = store.all('task_phases').reduce((m, p) => Math.max(m, p.sort_order ?? 0), -1);
+  for (const name of missing) {
+    maxSort += 1;
+    store.insert('task_phases', { name, sort_order: maxSort });
+  }
+}
+
 function getMergedPhaseMeta() {
   const taskCounts = {};
   for (const t of store.all('tasks')) {
@@ -229,7 +274,7 @@ function getMergedPhaseMeta() {
       inDb: false,
     });
   }
-  return result;
+  return result.sort((a, b) => (a.sort_order ?? 9999) - (b.sort_order ?? 9999) || a.name.localeCompare(b.name));
 }
 
 function getMergedPhases() {
@@ -340,14 +385,36 @@ app.post('/api/tasks', (req, res) => {
     status = 'initiated', who = '',
   } = req.body;
   if (!task) return res.status(400).json({ error: 'Task is required' });
+  const phaseName = String(phase).trim() || 'Other';
+  ensurePhaseAtTop(phaseName);
   const normalizedStatus = normalizeStatus(status, 'initiated');
-  const row = store.insert('tasks', {
-    phase, task, owner, due_date, notes,
+  const row = insertTaskAtTop({
+    phase: phaseName, task, owner, due_date, notes,
     status: normalizedStatus,
     done: isTaskDone(normalizedStatus),
   });
   logActivity('Added task', `"${task}" in ${phase}`, who);
   res.json(row);
+});
+
+app.put('/api/tasks/reorder', (req, res) => {
+  try {
+    const { phase, orderedIds } = req.body || {};
+    if (!phase || !Array.isArray(orderedIds) || !orderedIds.length) {
+      return res.status(400).json({ error: 'phase and orderedIds are required' });
+    }
+    withTransaction(() => {
+      orderedIds.forEach((id, index) => {
+        db.prepare(
+          `UPDATE tasks SET sort_order = ? WHERE id = ? AND LOWER(TRIM(phase)) = LOWER(TRIM(?))`
+        ).run(index, Number(id), phase);
+      });
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('PUT /api/tasks/reorder', err);
+    res.status(500).json({ error: 'Failed to reorder tasks' });
+  }
 });
 
 app.put('/api/tasks/:id', (req, res) => {
@@ -657,9 +724,10 @@ app.post('/api/task-phases', (req, res) => {
         inDb: true,
       });
     }
-    const phases = store.all('task_phases');
-    const maxSort = phases.reduce((m, p) => Math.max(m, p.sort_order || 0), 0);
-    const row = store.insert('task_phases', { name, sort_order: maxSort + 1 });
+    withTransaction(() => {
+      db.prepare('UPDATE task_phases SET sort_order = sort_order + 1').run();
+    });
+    const row = store.insert('task_phases', { name, sort_order: 0 });
     logActivity('Added task phase', `"${name}"`, whoFromSession(req));
     res.json({
       id: row.id,
@@ -671,6 +739,33 @@ app.post('/api/task-phases', (req, res) => {
   } catch (err) {
     console.error('POST /api/task-phases', err);
     res.status(500).json({ error: err.message || 'Failed to add phase' });
+  }
+});
+
+app.put('/api/task-phases/reorder', (req, res) => {
+  try {
+    const { orderedNames } = req.body || {};
+    if (!Array.isArray(orderedNames) || !orderedNames.length) {
+      return res.status(400).json({ error: 'orderedNames is required' });
+    }
+    withTransaction(() => {
+      orderedNames.forEach((name, index) => {
+        const trimmed = String(name || '').trim();
+        if (!trimmed) return;
+        let phaseRow = store.all('task_phases').find(
+          (p) => p.name.toLowerCase() === trimmed.toLowerCase()
+        );
+        if (!phaseRow) {
+          phaseRow = store.insert('task_phases', { name: trimmed, sort_order: index });
+        } else {
+          db.prepare('UPDATE task_phases SET sort_order = ? WHERE id = ?').run(index, phaseRow.id);
+        }
+      });
+    });
+    res.json({ ok: true, phases: getMergedPhaseMeta() });
+  } catch (err) {
+    console.error('PUT /api/task-phases/reorder', err);
+    res.status(500).json({ error: 'Failed to reorder phases' });
   }
 });
 
@@ -839,6 +934,8 @@ app.use((err, req, res, _next) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
+syncTaskPhasesFromTasks();
+
 app.listen(PORT, () => {
   console.log(`CPHI app running on port ${PORT}`);
   console.log(`SQLite database: ${DB_PATH}`);

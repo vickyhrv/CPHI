@@ -38,7 +38,7 @@ const TABLE_COLUMNS = {
     'category', 'item', 'last_year', 'this_year_est', 'actual', 'notes',
     'vendor', 'poc_name', 'poc_email', 'poc_phone', 'merchandise_notes',
   ],
-  tasks: ['phase', 'task', 'done', 'status', 'owner', 'due_date', 'notes'],
+  tasks: ['phase', 'task', 'done', 'status', 'owner', 'due_date', 'notes', 'sort_order'],
   leads: [
     'name', 'company', 'role', 'email', 'phone', 'country',
     'interest', 'priority', 'notes', 'captured_by', 'follow_up_date',
@@ -111,7 +111,9 @@ const store = {
       ? 'ORDER BY updated_at DESC'
       : table === 'task_phases'
         ? 'ORDER BY sort_order ASC, name ASC'
-        : 'ORDER BY id';
+        : table === 'tasks'
+          ? 'ORDER BY sort_order ASC, id ASC'
+          : 'ORDER BY id';
     const rows = db.prepare(`SELECT * FROM ${table} ${order}`).all();
     return rows.map((r) => normalizeOut(table, r));
   },
