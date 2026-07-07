@@ -69,7 +69,7 @@ sudo chown -R cphi:cphi /opt/cphi-app
 sudo bash /opt/cphi-app/deploy/deploy.sh
 ```
 
-**Files tab (images + PDF uploads)** — after first deploy with this feature, also run once if nginx still has a 2 MB limit:
+**Files tab uploads (images, PDF, Office docs, TXT)** — after first deploy with this feature, also run once if nginx still has a body-size limit:
 
 ```bash
 sudo cp /opt/cphi-app/deploy/nginx/cphi-milan.conf /etc/nginx/sites-available/cphi-milan.conf

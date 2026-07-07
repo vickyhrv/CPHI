@@ -608,7 +608,7 @@ app.post('/api/files', (req, res) => {
   fileUpload.single('file')(req, res, (err) => {
     if (err) {
       const msg = err.code === 'LIMIT_FILE_SIZE'
-        ? 'File too large (max 8 MB)'
+        ? 'File too large (max 20 MB)'
         : (err.message || 'Upload failed');
       return res.status(400).json({ error: msg });
     }
