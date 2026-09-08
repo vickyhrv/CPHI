@@ -218,17 +218,30 @@
   <!-- ── FILES ──────────────────────────────────────────────────────────────── -->
   <section id="files" class="panel">
     <div class="panel-head">
-      <h2>Files</h2>
+      <h2 class="files-heading">
+        Files
+        <span class="info-tip" tabindex="0" aria-label="How to use folders and uploads">
+          <span class="info-tip-icon" aria-hidden="true">i</span>
+          <span class="info-tip-bubble" role="tooltip">
+            Use <strong>+ New folder</strong> to create a folder.
+            Click the folder to go inside, then use <strong>+ Upload file</strong> to upload into that folder.
+          </span>
+        </span>
+      </h2>
       <div class="head-actions file-head-actions">
-        <input type="search" id="fileSearchInput" class="file-search-input" placeholder="Search files…" aria-label="Search files" />
-        <button class="btn-secondary" id="exportFilesBtn" type="button">⬇ Export CSV</button>
+        <input type="search" id="fileSearchInput" class="file-search-input" placeholder="Search all files…" aria-label="Search files" />
+        <button class="btn-secondary" id="newFolderBtn" type="button">+ New folder</button>
         <button class="btn-primary" id="uploadFileBtn" type="button">+ Upload file</button>
+        <button class="btn-secondary" id="exportFilesBtn" type="button">⬇ Export CSV</button>
         <input type="file" id="fileInput" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" hidden />
       </div>
     </div>
-    <p class="file-hint">Upload images, PDFs, DOC/XLS/PPT files, and TXT (max 20 MB). Click a thumbnail for fullscreen preview.</p>
-    <div class="file-grid-wrap">
-      <div id="fileGrid" class="file-grid"></div>
+    <nav id="fileBreadcrumb" class="file-breadcrumb" aria-label="Folder path"></nav>
+    <div class="file-browser">
+      <div id="folderGrid" class="folder-grid"></div>
+      <div class="file-grid-wrap">
+        <div id="fileGrid" class="file-grid"></div>
+      </div>
     </div>
   </section>
 

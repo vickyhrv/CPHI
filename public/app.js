@@ -1130,6 +1130,10 @@ document.getElementById('exportTravelersBtn').addEventListener('click', () => ex
 // FILES
 // ═══════════════════════════════════════════════════════════════════════════════
 let fileData = [];
+let folderChildren = [];
+let fileBreadcrumb = [];
+let currentFolderId = null;
+let allFoldersCache = [];
 let fileSearchQuery = '';
 let previewFileId = null;
 const fileCommentTimers = new Map();
@@ -1154,24 +1158,104 @@ function fmtDateTime(iso) {
   });
 }
 
+function isSearchMode() {
+  return !!fileSearchQuery.trim();
+}
+
+async function ensureCurrentFolder() {
+  if (currentFolderId) return currentFolderId;
+  const unc = await api('/api/folders/uncategorized');
+  currentFolderId = unc.id;
+  return currentFolderId;
+}
+
 async function loadFiles() {
-  fileData = await api('/api/files');
-  renderFileGrid();
+  await ensureCurrentFolder();
+  if (isSearchMode()) {
+    fileData = await api(`/api/files?q=${encodeURIComponent(fileSearchQuery.trim())}`);
+    folderChildren = [];
+    fileBreadcrumb = [];
+    renderFileBrowser();
+    return;
+  }
+  const contents = await api(`/api/folders/${currentFolderId}/contents`);
+  currentFolderId = contents.folder.id;
+  fileBreadcrumb = contents.breadcrumb || [];
+  folderChildren = contents.folders || [];
+  fileData = contents.files || [];
+  renderFileBrowser();
+}
+
+function renderBreadcrumb() {
+  const nav = document.getElementById('fileBreadcrumb');
+  if (isSearchMode()) {
+    nav.innerHTML = `
+      <span class="file-crumb-current">Search results</span>
+      <button type="button" class="file-crumb-clear" id="clearFileSearchBtn">Clear search</button>
+    `;
+    return;
+  }
+  if (!fileBreadcrumb.length) {
+    nav.innerHTML = '';
+    return;
+  }
+  nav.innerHTML = fileBreadcrumb.map((c, i) => {
+    const isLast = i === fileBreadcrumb.length - 1;
+    if (isLast) {
+      return `<span class="file-crumb-current">${esc(c.name)}</span>`;
+    }
+    return `<button type="button" class="file-crumb-link" data-folder-id="${c.id}">${esc(c.name)}</button><span class="file-crumb-sep" aria-hidden="true">/</span>`;
+  }).join('');
+}
+
+function renderFolderGrid() {
+  const grid = document.getElementById('folderGrid');
+  if (isSearchMode()) {
+    grid.innerHTML = '';
+    grid.hidden = true;
+    return;
+  }
+  grid.hidden = false;
+  if (!folderChildren.length) {
+    grid.innerHTML = '';
+    return;
+  }
+  grid.innerHTML = folderChildren.map((f) => `
+    <article class="folder-card" data-folder-id="${f.id}">
+      <button type="button" class="folder-open-btn" data-folder-id="${f.id}" title="Open ${esc(f.name)}">
+        <span class="folder-icon" aria-hidden="true">📁</span>
+        <span class="folder-name">${esc(f.name)}</span>
+      </button>
+      <div class="folder-card-actions">
+        ${f.is_system ? '' : `
+          <button type="button" class="folder-action-btn" data-rename-folder="${f.id}" title="Rename">Rename</button>
+          <button type="button" class="folder-action-btn folder-action-danger" data-delete-folder="${f.id}" title="Delete">Delete</button>
+        `}
+      </div>
+    </article>
+  `).join('');
 }
 
 function renderFileGrid() {
   const grid = document.getElementById('fileGrid');
   const q = fileSearchQuery.trim().toLowerCase();
-  const items = q
-    ? fileData.filter((f) =>
-      (f.original_name || '').toLowerCase().includes(q)
-      || (f.comment || '').toLowerCase().includes(q))
-    : fileData;
+  const items = isSearchMode()
+    ? fileData
+    : (q
+      ? fileData.filter((f) =>
+        (f.original_name || '').toLowerCase().includes(q)
+        || (f.comment || '').toLowerCase().includes(q))
+      : fileData);
 
   if (!items.length) {
-    grid.innerHTML = q
+    const emptyFolders = !isSearchMode() && !folderChildren.length;
+    grid.innerHTML = isSearchMode()
       ? '<div class="empty-state">No files match your search.</div>'
-      : '<div class="empty-state">No files yet — upload images or PDFs for booth photos, brochures, and plans.</div>';
+      : emptyFolders
+        ? '<div class="empty-state">This folder is empty — upload a file or create a subfolder.</div>'
+        : items.length === 0 && folderChildren.length
+          ? '<div class="empty-state">No files in this folder.</div>'
+          : '<div class="empty-state">No files yet.</div>';
     return;
   }
 
@@ -1181,7 +1265,10 @@ function renderFileGrid() {
     card.className = 'file-card';
     const thumbHtml = isImageFile(f)
       ? `<img class="file-thumb" src="/api/files/${f.id}/content" alt="${esc(f.original_name)}" loading="lazy" />`
-      : '<div class="file-pdf-thumb" aria-hidden="true"><span class="file-pdf-label">PDF</span></div>';
+      : `<div class="file-pdf-thumb" aria-hidden="true"><span class="file-pdf-label">${esc((f.mime_type || 'FILE').split('/').pop().toUpperCase().slice(0, 4))}</span></div>`;
+    const pathHint = isSearchMode() && f.folder_path
+      ? `<div class="file-folder-path" title="${esc(f.folder_path)}">${esc(f.folder_path)}</div>`
+      : '';
 
     card.innerHTML = `
       <button type="button" class="file-thumb-btn" data-file-id="${f.id}" aria-label="Preview ${esc(f.original_name)}">
@@ -1189,16 +1276,37 @@ function renderFileGrid() {
       </button>
       <div class="file-card-body">
         <div class="file-name" title="${esc(f.original_name)}">${esc(f.original_name)}</div>
+        ${pathHint}
         <input type="text" class="file-comment-input" data-file-id="${f.id}" placeholder="Add comment…" value="${esc(f.comment || '')}" />
         <div class="file-meta">
           <span title="${esc(fmtDateTime(f.updated_at))}">Updated ${timeAgo(f.updated_at)}</span>
           <span class="file-size">${formatFileSize(f.size_bytes)}</span>
+        </div>
+        <div class="file-card-actions">
+          <button type="button" class="file-action-btn" data-rename-file="${f.id}">Rename</button>
+          <button type="button" class="file-action-btn" data-move-file="${f.id}">Move</button>
         </div>
       </div>
       <button type="button" class="row-delete file-delete" data-file-id="${f.id}" title="Delete file">✕</button>
     `;
     grid.appendChild(card);
   });
+}
+
+function renderFileBrowser() {
+  renderBreadcrumb();
+  renderFolderGrid();
+  renderFileGrid();
+}
+
+async function openFolder(id) {
+  const numId = parseRowId(id);
+  if (!numId) return;
+  currentFolderId = numId;
+  fileSearchQuery = '';
+  const searchInput = document.getElementById('fileSearchInput');
+  if (searchInput) searchInput.value = '';
+  await loadFiles();
 }
 
 async function saveFileComment(id, comment) {
@@ -1280,9 +1388,99 @@ async function deleteFile(id) {
   }
 }
 
+async function renameFile(id) {
+  const numId = parseRowId(id);
+  const row = fileData.find((f) => parseRowId(f.id) === numId);
+  if (!row) return;
+  const next = prompt('Rename file', row.original_name);
+  if (next == null) return;
+  const name = next.trim();
+  if (!name || name === row.original_name) return;
+  try {
+    await api(`/api/files/${numId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ original_name: name }),
+    });
+    await loadFiles();
+    clearApiError();
+  } catch (err) {
+    showApiError(err);
+  }
+}
+
+async function createFolderHere() {
+  await ensureCurrentFolder();
+  const name = prompt('New folder name');
+  if (name == null) return;
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  try {
+    await api('/api/folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: trimmed, parentId: currentFolderId }),
+    });
+    await loadFiles();
+    clearApiError();
+  } catch (err) {
+    showApiError(err);
+  }
+}
+
+async function renameFolder(id) {
+  const numId = parseRowId(id);
+  const folder = folderChildren.find((f) => parseRowId(f.id) === numId);
+  if (!folder || folder.is_system) return;
+  const next = prompt('Rename folder', folder.name);
+  if (next == null) return;
+  const name = next.trim();
+  if (!name || name === folder.name) return;
+  try {
+    await api(`/api/folders/${numId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    await loadFiles();
+    clearApiError();
+  } catch (err) {
+    showApiError(err);
+  }
+}
+
+async function deleteFolder(id) {
+  const numId = parseRowId(id);
+  const folder = folderChildren.find((f) => parseRowId(f.id) === numId);
+  if (!folder || folder.is_system) return;
+  if (!confirm(`Delete folder "${folder.name}"? Files inside will move to Uncategorized.`)) return;
+  try {
+    await api(`/api/folders/${numId}`, { method: 'DELETE' });
+    await loadFiles();
+    clearApiError();
+  } catch (err) {
+    showApiError(err);
+  }
+}
+
+async function moveFile(id) {
+  const numId = parseRowId(id);
+  const row = fileData.find((f) => parseRowId(f.id) === numId);
+  if (!row) return;
+  try {
+    allFoldersCache = await api('/api/folders?all=1');
+  } catch (err) {
+    showApiError(err);
+    return;
+  }
+  openModal('moveFile', { file: row, folders: allFoldersCache });
+}
+
 async function uploadFile(file) {
+  await ensureCurrentFolder();
   const form = new FormData();
   form.append('file', file);
+  form.append('folderId', String(currentFolderId));
   const res = await fetch('/api/files', { method: 'POST', credentials: 'same-origin', body: form });
   if (res.status === 401) {
     window.location.href = '/login.html';
@@ -1303,8 +1501,58 @@ function bindFileListeners() {
   if (fileListenersBound) return;
   fileListenersBound = true;
 
-  const wrap = document.querySelector('.file-grid-wrap');
-  wrap.addEventListener('click', (e) => {
+  const browser = document.querySelector('.file-browser');
+  const breadcrumb = document.getElementById('fileBreadcrumb');
+
+  breadcrumb.addEventListener('click', async (e) => {
+    const clearBtn = e.target.closest('#clearFileSearchBtn');
+    if (clearBtn) {
+      fileSearchQuery = '';
+      document.getElementById('fileSearchInput').value = '';
+      await loadFiles();
+      return;
+    }
+    const link = e.target.closest('.file-crumb-link[data-folder-id]');
+    if (link) {
+      await openFolder(link.dataset.folderId);
+    }
+  });
+
+  browser.addEventListener('click', async (e) => {
+    const openBtn = e.target.closest('.folder-open-btn[data-folder-id]');
+    if (openBtn) {
+      e.preventDefault();
+      await openFolder(openBtn.dataset.folderId);
+      return;
+    }
+    const renameFolderBtn = e.target.closest('[data-rename-folder]');
+    if (renameFolderBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      await renameFolder(renameFolderBtn.dataset.renameFolder);
+      return;
+    }
+    const deleteFolderBtn = e.target.closest('[data-delete-folder]');
+    if (deleteFolderBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      await deleteFolder(deleteFolderBtn.dataset.deleteFolder);
+      return;
+    }
+    const renameFileBtn = e.target.closest('[data-rename-file]');
+    if (renameFileBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      await renameFile(renameFileBtn.dataset.renameFile);
+      return;
+    }
+    const moveFileBtn = e.target.closest('[data-move-file]');
+    if (moveFileBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      await moveFile(moveFileBtn.dataset.moveFile);
+      return;
+    }
     const thumbBtn = e.target.closest('.file-thumb-btn[data-file-id]');
     if (thumbBtn) {
       e.preventDefault();
@@ -1319,7 +1567,7 @@ function bindFileListeners() {
     }
   });
 
-  wrap.addEventListener('input', (e) => {
+  browser.addEventListener('input', (e) => {
     const inp = e.target;
     if (!(inp instanceof HTMLInputElement) || !inp.classList.contains('file-comment-input')) return;
     const fid = inp.dataset.fileId;
@@ -1330,7 +1578,7 @@ function bindFileListeners() {
     }, 400));
   });
 
-  wrap.addEventListener('focusout', (e) => {
+  browser.addEventListener('focusout', (e) => {
     const inp = e.target;
     if (!(inp instanceof HTMLInputElement) || !inp.classList.contains('file-comment-input')) return;
     const fid = inp.dataset.fileId;
@@ -1338,10 +1586,14 @@ function bindFileListeners() {
     saveFileComment(fid, inp.value);
   });
 
+  let searchTimer;
   document.getElementById('fileSearchInput').addEventListener('input', (e) => {
     fileSearchQuery = e.target.value;
-    renderFileGrid();
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => loadFiles(), 250);
   });
+
+  document.getElementById('newFolderBtn').addEventListener('click', () => createFolderHere());
 
   document.getElementById('uploadFileBtn').addEventListener('click', () => {
     document.getElementById('fileInput').click();
@@ -1352,9 +1604,8 @@ function bindFileListeners() {
     e.target.value = '';
     if (!file) return;
     try {
-      const row = await uploadFile(file);
-      fileData.unshift(row);
-      renderFileGrid();
+      await uploadFile(file);
+      await loadFiles();
       clearApiError();
     } catch (err) {
       showApiError(err);
@@ -1957,11 +2208,71 @@ function openModal(type, data) {
         setTimeout(() => modal.querySelector('#waCopyBtn').textContent = '📋 Copy for group', 2000);
       });
     });
+
+  } else if (type === 'moveFile') {
+    const file = data.file;
+    const folderOpts = buildFolderSelectOptions(data.folders || [], file.folder_id);
+    modal.innerHTML = `
+      <h3>Move file</h3>
+      <p class="modal-hint">Move <strong>${esc(file.original_name)}</strong> to another folder.</p>
+      <div class="field-group">
+        <label>Destination folder</label>
+        <select id="f_folder">${folderOpts}</select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelBtn">Cancel</button>
+        <button class="btn-primary" id="saveBtn">Move</button>
+      </div>
+    `;
+    modal.querySelector('#saveBtn').addEventListener('click', async () => {
+      const folderId = Number(modal.querySelector('#f_folder').value);
+      if (!folderId) { alert('Choose a folder'); return; }
+      try {
+        await api(`/api/files/${file.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folderId }),
+        });
+        closeModal();
+        await loadFiles();
+        clearApiError();
+      } catch (err) {
+        showApiError(err);
+      }
+    });
   }
 
   modal.querySelector('#cancelBtn').addEventListener('click', closeModal);
   backdrop.classList.add('open');
-  modal.querySelector('input,textarea')?.focus();
+  modal.querySelector('input,textarea,select')?.focus();
+}
+
+function buildFolderSelectOptions(folderList, selectedId) {
+  const byParent = new Map();
+  for (const f of folderList) {
+    const key = f.parent_id == null ? 'root' : String(f.parent_id);
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(f);
+  }
+  for (const list of byParent.values()) {
+    list.sort((a, b) => {
+      if (a.is_system && !b.is_system) return -1;
+      if (!a.is_system && b.is_system) return 1;
+      return String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' });
+    });
+  }
+  const options = [];
+  function walk(parentKey, prefix) {
+    const kids = byParent.get(parentKey) || [];
+    for (const f of kids) {
+      const label = prefix ? `${prefix} / ${f.name}` : f.name;
+      const sel = Number(f.id) === Number(selectedId) ? ' selected' : '';
+      options.push(`<option value="${f.id}"${sel}>${esc(label)}</option>`);
+      walk(String(f.id), label);
+    }
+  }
+  walk('root', '');
+  return options.join('') || '<option value="">No folders</option>';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

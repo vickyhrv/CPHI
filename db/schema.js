@@ -83,6 +83,16 @@ CREATE TABLE IF NOT EXISTS settings (
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS file_folders (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  name        TEXT NOT NULL,
+  parent_id   INTEGER,
+  is_system   INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (parent_id) REFERENCES file_folders(id)
+);
+
 CREATE TABLE IF NOT EXISTS file_assets (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
@@ -92,7 +102,9 @@ CREATE TABLE IF NOT EXISTS file_assets (
   mime_type     TEXT NOT NULL DEFAULT '',
   size_bytes    INTEGER NOT NULL DEFAULT 0,
   comment       TEXT NOT NULL DEFAULT '',
-  uploaded_by   TEXT NOT NULL DEFAULT ''
+  uploaded_by   TEXT NOT NULL DEFAULT '',
+  folder_id     INTEGER,
+  FOREIGN KEY (folder_id) REFERENCES file_folders(id)
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -119,10 +131,13 @@ CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks(done);
 CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity_log(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_file_assets_updated ON file_assets(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_file_folders_parent ON file_folders(parent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_file_folders_parent_name
+  ON file_folders(COALESCE(parent_id, 0), name);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 `;
 
-const MIGRATION_VERSION = 7;
+const MIGRATION_VERSION = 8;
 
 function columnExists(db, table, column) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -197,6 +212,40 @@ function applyMigration(db, version) {
         db.prepare(`UPDATE tasks SET sort_order = ? WHERE id = ?`).run(i, t.id);
       });
     }
+  }
+  if (version === 8) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS file_folders (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        name        TEXT NOT NULL,
+        parent_id   INTEGER,
+        is_system   INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (parent_id) REFERENCES file_folders(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_file_folders_parent ON file_folders(parent_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_file_folders_parent_name
+        ON file_folders(COALESCE(parent_id, 0), name);
+    `);
+
+    let unc = db.prepare(
+      `SELECT id FROM file_folders WHERE is_system = 1 AND name = 'Uncategorized' LIMIT 1`
+    ).get();
+    if (!unc) {
+      const info = db.prepare(
+        `INSERT INTO file_folders (name, parent_id, is_system) VALUES ('Uncategorized', NULL, 1)`
+      ).run();
+      unc = { id: Number(info.lastInsertRowid) };
+    }
+
+    if (!columnExists(db, 'file_assets', 'folder_id')) {
+      db.exec(`ALTER TABLE file_assets ADD COLUMN folder_id INTEGER`);
+    }
+    db.prepare(
+      `UPDATE file_assets SET folder_id = ? WHERE folder_id IS NULL`
+    ).run(unc.id);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_file_assets_folder ON file_assets(folder_id)`);
   }
 }
 

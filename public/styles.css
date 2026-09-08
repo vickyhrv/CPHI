@@ -1515,10 +1515,204 @@ tbody select:focus {
 
 /* ── Files gallery ─────────────────────────────────────────────────────────── */
 
+.files-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.info-tip-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-soft);
+  color: var(--ink-soft);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 12px;
+  font-weight: 700;
+  font-style: italic;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: help;
+  user-select: none;
+}
+
+.info-tip-bubble {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 40;
+  width: min(280px, 70vw);
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(26, 31, 46, 0.18);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+
+.info-tip-bubble strong {
+  font-weight: 600;
+}
+
+.info-tip:hover .info-tip-bubble,
+.info-tip:focus-within .info-tip-bubble {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
 .file-hint {
   margin: 0 0 16px;
   font-size: 14px;
   color: var(--ink-soft);
+}
+
+.file-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 0 0 14px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.file-crumb-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--brand);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.file-crumb-current {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.file-crumb-sep {
+  color: var(--ink-soft);
+  opacity: 0.7;
+}
+
+.file-crumb-clear {
+  margin-left: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.file-browser {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.folder-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.folder-open-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.folder-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.folder-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-card-actions,
+.file-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.folder-action-btn,
+.file-action-btn {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.folder-action-btn:hover,
+.file-action-btn:hover {
+  color: var(--ink);
+  border-color: #d4ccc3;
+}
+
+.folder-action-danger:hover {
+  color: #b42318;
+  border-color: #f0b4ae;
+}
+
+.file-folder-path {
+  font-size: 11px;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 4px;
 }
 
 .file-head-actions {

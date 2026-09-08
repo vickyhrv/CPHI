@@ -10,6 +10,9 @@ runMigrations(db);
 migrateFromJsonIfNeeded();
 migrateUsersIfNeeded();
 
+const folders = require('./lib/folders');
+folders.ensureUncategorized();
+
 const ALLOWED_TABLES = new Set([
   'budget_items',
   'tasks',
@@ -18,11 +21,13 @@ const ALLOWED_TABLES = new Set([
   'travelers',
   'settings',
   'file_assets',
+  'file_folders',
   'task_phases',
 ]);
 
 const BOOLEAN_FIELDS = {
   tasks: new Set(['done']),
+  file_folders: new Set(['is_system']),
   travelers: new Set([
     'visa_applied',
     'visa_received',
@@ -52,8 +57,9 @@ const TABLE_COLUMNS = {
   settings: ['budget_cap', 'currency'],
   file_assets: [
     'original_name', 'stored_name', 'mime_type', 'size_bytes',
-    'comment', 'uploaded_by', 'updated_at',
+    'comment', 'uploaded_by', 'updated_at', 'folder_id',
   ],
+  file_folders: ['name', 'parent_id', 'is_system', 'updated_at'],
   task_phases: ['name', 'sort_order'],
 };
 
@@ -109,6 +115,8 @@ const store = {
     assertTable(table);
     const order = table === 'file_assets'
       ? 'ORDER BY updated_at DESC'
+      : table === 'file_folders'
+        ? 'ORDER BY is_system DESC, name COLLATE NOCASE ASC'
       : table === 'task_phases'
         ? 'ORDER BY sort_order ASC, name ASC'
         : table === 'tasks'
@@ -129,6 +137,9 @@ const store = {
     const now = new Date().toISOString();
     const payload = normalizeIn(table, pickColumns(table, data));
     if (table === 'file_assets') {
+      payload.updated_at = now;
+    }
+    if (table === 'file_folders') {
       payload.updated_at = now;
     }
     const cols = Object.keys(payload);
@@ -159,6 +170,9 @@ const store = {
 
     const payload = normalizeIn(table, pickColumns(table, data));
     if (table === 'file_assets') {
+      payload.updated_at = new Date().toISOString();
+    }
+    if (table === 'file_folders') {
       payload.updated_at = new Date().toISOString();
     }
     const cols = Object.keys(payload);

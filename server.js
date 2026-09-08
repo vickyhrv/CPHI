@@ -24,6 +24,7 @@ const {
   requireBudgetAccess,
 } = require('./auth');
 const users = require('./lib/users');
+const folders = require('./lib/folders');
 const { normalizeStatus, isTaskDone, statusFromRow } = require('./lib/tasks');
 const { validatePasswordPolicy } = require('./lib/password');
 
@@ -573,28 +574,120 @@ app.get('/api/activity/export.csv', (req, res) => {
 });
 
 // ─── Files API ────────────────────────────────────────────────────────────────
-function filterFiles(rows, q) {
-  const needle = String(q || '').trim().toLowerCase();
-  if (!needle) return rows;
-  return rows.filter((r) =>
-    (r.original_name || '').toLowerCase().includes(needle)
-    || (r.comment || '').toLowerCase().includes(needle)
-  );
-}
-
 function sendFilesCsv(res) {
-  const rows = store.all('file_assets');
+  const rows = folders.searchAllFiles();
   const headers = [
     'id', 'original_name', 'mime_type', 'size_bytes', 'comment',
-    'uploaded_by', 'created_at', 'updated_at',
+    'uploaded_by', 'folder_path', 'folder_id', 'created_at', 'updated_at',
   ];
   sendCsv(res, 'cphi-files.csv', rows, headers);
 }
 
+app.get('/api/folders', (req, res) => {
+  try {
+    if (req.query.all === '1' || req.query.all === 'true') {
+      return res.json(folders.listAllFolders());
+    }
+    const parentId = req.query.parentId;
+    if (parentId === undefined || parentId === '' || parentId === 'root') {
+      return res.json(folders.listChildren(null));
+    }
+    const id = parseIdParam(parentId);
+    if (!id) return res.status(400).json({ error: 'Invalid parentId' });
+    if (!folders.getFolder(id)) return res.status(404).json({ error: 'Parent folder not found' });
+    res.json(folders.listChildren(id));
+  } catch (err) {
+    console.error('GET /api/folders', err);
+    res.status(500).json({ error: 'Failed to load folders' });
+  }
+});
+
+app.get('/api/folders/uncategorized', (req, res) => {
+  try {
+    res.json(folders.ensureUncategorized());
+  } catch (err) {
+    console.error('GET /api/folders/uncategorized', err);
+    res.status(500).json({ error: 'Failed to load Uncategorized folder' });
+  }
+});
+
+app.get('/api/folders/:id/contents', (req, res) => {
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid folder id' });
+    res.json(folders.getFolderContents(id, req.query.q));
+  } catch (err) {
+    const msg = err.message || 'Failed to load folder';
+    const status = msg === 'Folder not found' ? 404 : 500;
+    if (status === 500) console.error('GET /api/folders/:id/contents', err);
+    res.status(status).json({ error: msg });
+  }
+});
+
+app.post('/api/folders', (req, res) => {
+  try {
+    const { name, parentId } = req.body || {};
+    const folder = folders.createFolder({ name, parentId });
+    logActivity('Created folder', `"${folder.name}"`, whoFromSession(req));
+    res.json(folder);
+  } catch (err) {
+    const msg = err.message || 'Failed to create folder';
+    const status = /required|already exists|too long|cannot contain|not found/i.test(msg) ? 400 : 500;
+    if (status === 500) console.error('POST /api/folders', err);
+    res.status(status).json({ error: msg });
+  }
+});
+
+app.put('/api/folders/:id', (req, res) => {
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid folder id' });
+    const { name } = req.body || {};
+    const folder = folders.renameFolder(id, name);
+    logActivity('Renamed folder', `"${folder.name}"`, whoFromSession(req));
+    res.json(folder);
+  } catch (err) {
+    const msg = err.message || 'Failed to rename folder';
+    const status = /not found/i.test(msg) ? 404
+      : /Cannot rename|required|already exists|too long|cannot contain/i.test(msg) ? 400 : 500;
+    if (status === 500) console.error('PUT /api/folders/:id', err);
+    res.status(status).json({ error: msg });
+  }
+});
+
+app.delete('/api/folders/:id', (req, res) => {
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid folder id' });
+    const folder = folders.getFolder(id);
+    if (!folder) return res.status(404).json({ error: 'Folder not found' });
+    const result = folders.deleteFolder(id);
+    logActivity(
+      'Deleted folder',
+      `"${folder.name}" (files moved to Uncategorized)`,
+      whoFromSession(req)
+    );
+    res.json(result);
+  } catch (err) {
+    const msg = err.message || 'Failed to delete folder';
+    const status = /Cannot delete|not found/i.test(msg) ? 400 : 500;
+    if (status === 500) console.error('DELETE /api/folders/:id', err);
+    res.status(status).json({ error: msg });
+  }
+});
+
 app.get('/api/files', (req, res) => {
   try {
-    const rows = filterFiles(store.all('file_assets'), req.query.q);
-    res.json(rows);
+    if (req.query.q && String(req.query.q).trim() && !req.query.folderId) {
+      return res.json(folders.searchAllFiles(req.query.q));
+    }
+    if (req.query.folderId) {
+      const fid = parseIdParam(req.query.folderId);
+      if (!fid) return res.status(400).json({ error: 'Invalid folderId' });
+      if (!folders.getFolder(fid)) return res.status(404).json({ error: 'Folder not found' });
+      return res.json(folders.getFolderContents(fid, req.query.q).files);
+    }
+    res.json(folders.searchAllFiles(req.query.q));
   } catch (err) {
     console.error('GET /api/files', err);
     res.status(500).json({ error: 'Failed to load files' });
@@ -618,8 +711,11 @@ app.post('/api/files', (req, res) => {
 
     const comment = String(req.body?.comment || '').trim();
     const who = whoFromSession(req);
+    let folderId = parseIdParam(req.body?.folderId);
+    if (!folderId) folderId = folders.getUncategorizedId();
 
     try {
+      folders.assertFolderExists(folderId);
       const row = store.insert('file_assets', {
         original_name: req.file.originalname,
         stored_name: req.file.filename,
@@ -627,13 +723,16 @@ app.post('/api/files', (req, res) => {
         size_bytes: req.file.size,
         comment,
         uploaded_by: who,
+        folder_id: folderId,
       });
       logActivity('Uploaded file', `"${req.file.originalname}"`, who);
       res.json(row);
     } catch (dbErr) {
       deleteStoredFile(req.file.filename);
-      console.error('POST /api/files', dbErr);
-      res.status(500).json({ error: 'Failed to save file metadata' });
+      const msg = dbErr.message || 'Failed to save file metadata';
+      const status = /not found/i.test(msg) ? 400 : 500;
+      if (status === 500) console.error('POST /api/files', dbErr);
+      res.status(status).json({ error: msg });
     }
   });
 });
@@ -671,15 +770,50 @@ app.put('/api/files/:id', (req, res) => {
     const old = store.get('file_assets', id);
     if (!old) return res.status(404).json({ error: 'File not found' });
 
-    const { comment } = req.body || {};
-    const updated = store.update('file_assets', id, {
-      comment: comment !== undefined ? String(comment) : old.comment,
-    });
+    const body = req.body || {};
+    const patch = {};
+
+    if (body.comment !== undefined) {
+      patch.comment = String(body.comment);
+    }
+
+    if (body.original_name !== undefined || body.originalName !== undefined) {
+      const raw = body.original_name !== undefined ? body.original_name : body.originalName;
+      const norm = folders.normalizeFileName(raw);
+      if (norm.error) return res.status(400).json({ error: norm.error });
+      patch.original_name = norm.name;
+    }
+
+    if (body.folderId !== undefined || body.folder_id !== undefined) {
+      const fid = parseIdParam(body.folderId !== undefined ? body.folderId : body.folder_id);
+      if (!fid) return res.status(400).json({ error: 'Invalid folder id' });
+      folders.assertFolderExists(fid);
+      patch.folder_id = fid;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return res.json(old);
+    }
+
+    const updated = store.update('file_assets', id, patch);
     if (!updated) return res.status(404).json({ error: 'File not found' });
+
+    if (patch.original_name && patch.original_name !== old.original_name) {
+      logActivity('Renamed file', `"${old.original_name}" → "${patch.original_name}"`, whoFromSession(req));
+    }
+    if (patch.folder_id && Number(patch.folder_id) !== Number(old.folder_id)) {
+      logActivity(
+        'Moved file',
+        `"${updated.original_name}" → ${folders.folderPathLabel(patch.folder_id)}`,
+        whoFromSession(req)
+      );
+    }
     res.json(updated);
   } catch (err) {
-    console.error('PUT /api/files/:id', err);
-    res.status(500).json({ error: 'Failed to update file' });
+    const msg = err.message || 'Failed to update file';
+    const status = /not found/i.test(msg) ? 404 : 500;
+    if (status === 500) console.error('PUT /api/files/:id', err);
+    res.status(status).json({ error: msg });
   }
 });
 
